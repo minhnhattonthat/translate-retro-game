@@ -1,0 +1,25 @@
+#!/bin/sh
+# Translation-repo pre-commit hook (translate-retro-game skill).
+# Install: cp <skill>/scripts/hooks/pre-commit .git/hooks/pre-commit, then set CHECK to this repo's one-command
+# check (tests + text lint). Keep it under ~60 s: put slow emulator/build tests behind a marker and leave them out.
+CHECK='python -X utf8 -m pytest -q'
+
+files=$(git diff --cached --name-only --diff-filter=AM)
+
+# ROM images, disc images and savestates never go in git (copyright, size).
+bad=$(printf '%s\n' "$files" | grep -Ei '\.(sfc|smc|gba|nds|iso|cue|chd|mss|ss[0-9]|state|dsv)$')
+if [ -n "$bad" ]; then
+  echo "pre-commit: ROM/savestate files staged:"; echo "$bad"; exit 1
+fi
+
+# NUL bytes or stray raw control characters in source = a heredoc escape got mangled.
+src=$(printf '%s\n' "$files" | grep -E '\.(py|lua|asm|s|inc)$')
+if [ -n "$src" ]; then
+  python -X utf8 -c "
+import sys
+bad = [f for f in sys.argv[1:] if b'\x00' in open(f, 'rb').read()]
+sys.exit('pre-commit: NUL byte in ' + ', '.join(bad) + ' (mangled escape?)' if bad else 0)
+" $src || exit 1
+fi
+
+sh -c "$CHECK" || { echo "pre-commit: check failed: $CHECK"; exit 1; }

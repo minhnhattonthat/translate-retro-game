@@ -1,0 +1,22 @@
+# SNES notes
+
+- **Mapping:** LoROM (file offset = `((addr & 0x7F0000) >> 1) | (addr & 0x7FFF)`) or HiROM (`addr & 0x3FFFFF`, banks `$C0+`). Mesen memory callbacks report CPU addresses, so convert them before comparing to file offsets.
+- **Expanding the ROM:**
+  - 2 → 4 MB: set the header size byte (`$7FD7`/`$FFD7` = `$0C`) and fix the checksum at release (`bps.py snes-checksum`).
+  - Expanded banks are filled with 0xFF. `romdiff.py` treats extra 0xFF bytes as unchanged.
+- **Pointers:**
+  - 16-bit pointer pools must stay inside one 32 KB bank (LoROM).
+  - The allocator must never cross a bank, and must stop before `$7E/$7F` (WRAM) mirrors.
+  - Recompressed blocks that no longer fit go to the expanded area, still never crossing a bank.
+- **Assemblers:**
+  - asar (most patches), xkas-plus, or WLA-DX for disassembly-based builds.
+  - With a disassembler that emits WLA source, emit the header as data, never `.SNESHEADER`/`.BASE`, so the identity build stays exact.
+  - Point Makefile tool variables (`WLA ?=`) at the in-repo `tools/` copy, not at a path from someone else's machine.
+- **Fonts:**
+  - VWF on the kanji dynamic-tile path is the usual route.
+  - A tiny 3×7 font, 2 letters per tile, works for names and long descriptions in small boxes.
+  - The VWF tile buffer gets wiped by window clears and map scroll (a black bar in-game), so test scrolling and menu reopening.
+- **Text engines** often jump (`F2`/`F3`-style goto/call codes) into shared fragments. The extractor must follow jumps, and the encoder must keep fragment addresses valid, or one review fix breaks every jump (seen as "intro stuck at black screen").
+- **Checksum:** complement at `+0x2C`, sum at `+0x2E` of the header (`$FFDC/$FFDE` HiROM, `$7FDC/$7FDE` LoROM). Do it only in the release step.
+- **Emulator:** Mesen2 via `emu.py` (`.sfc`/`.smc`); see `setup.md`.
+- **Release:** BPS.

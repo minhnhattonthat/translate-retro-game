@@ -1,0 +1,20 @@
+# <Game title> (<platform>) English translation
+
+Skill: translate-retro-game (<SKILL_DIR>/SKILL.md). Read it before ROM, text or QA work.
+
+## Commands (run from repo root)
+- Build:    `<python -X utf8 build.py>`        -> build/<game>_en.<ext>
+- Check:    `<python -X utf8 tools/check.py>`  (tests + lint; the pre-commit hook runs this)
+- Smoke:    `python -X utf8 <SKILL_DIR>/scripts/emu.py build/<game>_en.<ext> --out work/qa/smoke --route tools/routes/boot.txt --smoke`
+- Release:  `<python -X utf8 tools/release.py>` (patch + verify; never publish without the user)
+
+## Paths
+- Original ROM: `rom/<file>` (gitignored; hash in README). Emulator: `tools/<emulator>/...` (gitignored). Savestates: `work/states/`.
+- Text: `script/` (<format>). Tables: `tbl/`. Glossary + rulings: `glossary.md`. RE notes index: `docs/re/README.md`.
+
+## Rulings
+- Honorifics / name order: <...>. Credits: <...>. Romanization: <...>. Abbreviations: <...>.
+- <project-specific gotchas: buffer limits, duplicate text sites, cold-boot needs, emulator file locks>
+
+## Status
+- Done: <...>. Next: <...>. Open bugs: <id - savestate - note>.
