@@ -60,7 +60,7 @@ Pair it with `--mash` and a long `--frames` to sweep menus and dialogue cheaply.
 
 - Read the contact sheet (`--sheet`, or `sheet.py DIR --changed 0.02 --div 2`), not individual frames. `--changed` drops frames that didn't change, and `--div 1` keeps full size for reading small text.
 - Look at a single full-size frame only when a sheet tile shows a problem.
-- Generate shots with a script, then Read the PNG in a **later** turn. Reading it in the same parallel batch fails when the file doesn't exist yet; this happened about 20 times in one project.
+- Generate shots with a script, then open the PNG only **after** that command finished. Opening it in the same parallel batch of tool calls fails when the file doesn't exist yet; this happened about 20 times in one project.
 
 ## Per-emulator facts and gotchas
 

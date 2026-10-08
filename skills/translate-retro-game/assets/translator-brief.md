@@ -12,7 +12,7 @@ Work only on the batch named in your dispatch. Do all translation yourself; do n
 the lines of one box (translate the box as one utterance); limit is the soft length target. Lines are in story order:
 use neighbours for context. Some lines are fragments of one sentence split by effects - make the pieces read in sequence.
 
-## Output: `work/tl/<batch>.out.tsv`, written with the Write tool
+## Output: `work/tl/<batch>.out.tsv`, written with your file-write tool (not a shell heredoc)
 `id<TAB>English`, every input id exactly once, same order. Plain ASCII: straight quotes, `...`, `--`; no tabs inside
 the English, no Japanese or fullwidth characters, no `\uXXXX`. Write `\n` only where a break must fall (rare).
 

@@ -1,6 +1,6 @@
 # Translation workflow reference
 
-How to turn extracted Japanese into reviewed English with subagents. Distilled from six projects, the largest of which dispatched 95 translator agents. Templates live in `$SKILL/assets/`.
+How to turn extracted Japanese into reviewed English with parallel agents (subagents where your harness has them; otherwise separate sessions given the same one-line dispatch). Distilled from six projects, the largest of which dispatched 95 translator agents. Templates live in `$SKILL/assets/`.
 
 ## Contents
 - Before the first batch
@@ -31,7 +31,7 @@ How to turn extracted Japanese into reviewed English with subagents. Distilled f
   - `limit` = the soft target (e.g. `85ch` or `208px`).
   - Use ` / ` for in-box line breaks. Give the speaker as a name, not a portrait slot number.
 - **Context:** include the neighbouring lines that matter: already-translated English neighbours (an earlier patch's English inline works well), or a few lead-in lines. Drop context lines that carry no English yet; in one project they were 34% of every batch and pure cost.
-- **Output format:** `id<TAB>EN`, or a JSON object `{"id": "EN"}`, written with the **Write tool**.
+- **Output format:** `id<TAB>EN`, or a JSON object `{"id": "EN"}`, written with the agent's **file-write tool**, never a shell heredoc.
   - The output must be plain ASCII, with `\n` only where a break must fall.
   - Accept TSV output in the merge tool: agents often write TSV to avoid quote escaping.
 - **Generate batches with a tool** (`tools/batches.py split`), never by hand. Write per-batch term lists alongside (`build/terms_<batch>.txt`, the glossary rows whose JP appears in the batch) so agents don't each read a 40 KB glossary.
@@ -48,9 +48,9 @@ How to turn extracted Japanese into reviewed English with subagents. Distilled f
 - Agents **never edit `glossary.md`** in parallel. They report new terms and you merge them between waves.
 - Give every new reviewer lesson to later batches as "notes from earlier batches" in the brief.
 - **Isolation:**
-  - Don't edit `tools/` while agents run, or launch them with `isolation: "worktree"`.
+  - Don't edit `tools/` while agents run, or give each agent its own git worktree.
   - Each agent writes only its own output file.
-- Define a translator agent in `.claude/agents/translator.md` (tools: Read, Write, Bash; a set model) rather than spawning `general-purpose` agents that inherit everything.
+- Use a dedicated translator agent definition where your harness supports one (Claude Code: `.claude/agents/translator.md` with tools Read, Write, Bash and a set model; other agents: their custom-agent or prompt-file mechanism) rather than general agents that inherit every tool.
 
 ## Validation and merge
 

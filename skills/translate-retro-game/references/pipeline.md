@@ -43,7 +43,7 @@ Distilled from eight finished fan translations across SNES, GBA, NDS and PS1. Re
    - build `tbl/jp.tbl`;
    - list control codes with their argument counts. A wrong argument count desyncs everything after it.
 5. **Pointers:** find the tables and the format (16-bit + bank, 24-bit, GBA `0x08000000|off`). Note which code reads them.
-6. Record everything in `docs/re/*.md`, one file per subsystem, with an index line in CLAUDE.md.
+6. Record everything in `docs/re/*.md`, one file per subsystem, with an index line in AGENTS.md/CLAUDE.md.
 
 ## Identity build
 
