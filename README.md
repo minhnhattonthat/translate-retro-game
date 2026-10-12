@@ -11,8 +11,8 @@ It is a playbook plus tested tools, distilled from eight finished fan translatio
 
   | Platform | Emulator |
   |---|---|
-  | SNES | Mesen2 |
-  | GBA | mGBA |
+  | SNES | MesenCE (or Mesen2) |
+  | GBA | MesenCE with your GBA BIOS dump, else mGBA |
   | NDS | DeSmuME + Lua 5.1 |
   | PS1 | PCSX-Redux |
 

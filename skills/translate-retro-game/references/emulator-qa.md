@@ -1,6 +1,6 @@
 # Emulator QA reference
 
-`scripts/emu.py` boots a ROM headless, plays a scripted route, takes screenshots and exits with a real code. Use it so the user doesn't have to play the build first. It covers SNES (Mesen2), GBA (mGBA), NDS (DeSmuME) and PS1 (PCSX-Redux).
+`scripts/emu.py` boots a ROM headless, plays a scripted route, takes screenshots and exits with a real code. Use it so the user doesn't have to play the build first. It covers SNES (MesenCE/Mesen2), GBA (Mesen with a BIOS dump, else mGBA), NDS (DeSmuME) and PS1 (PCSX-Redux).
 
 ## QA order (cheapest first)
 
@@ -48,7 +48,7 @@ Scripts (`--script`, repeatable) are appended after the driver; `--var NAME=LUA`
 - `L.dump_ram(path)`: SNES WRAM 128 KB, GBA EWRAM+IWRAM, NDS 4 MB / PS1 2 MB main RAM.
 
 Per emulator:
-- Mesen: `L.on_exec(lo, hi, fn)`, `L.rom_off(cpu_addr)` (LoROM; for HiROM use `a & 0x3FFFFF`), `L.save_state(path, done)`, `L.load_state(path, done)`. Code runs in either bank mirror (`$00-$3F`/`$80-$BF`), so `on_exec`/`on_read`/`on_write` hook both; a hook on one mirror alone silently misses.
+- Mesen: `L.on_exec(lo, hi, fn)`, `L.rom_off(cpu_addr)` (LoROM; for HiROM use `a & 0x3FFFFF`), `L.save_state(path, done)`, `L.load_state(path, done)`. SNES code runs in either bank mirror (`$00-$3F`/`$80-$BF`), so `on_exec`/`on_read`/`on_write` hook both; a hook on one mirror alone silently misses. A read/write range inside `$7E0000-$7FFFFF` is hooked as work RAM, so it also catches low WRAM accessed as `$00:0000-1FFF`.
 - DeSmuME: `L.on_exec(addr, fn)` (needs `--debugger`: JIT skips exec hooks); own API `memory.readbyte/readdword(addr)`.
 - PCSX-Redux: `L.on_exec(addr, fn)` (needs `--debugger`: debugger + interpreter, slower), `L.save_state(path)`; RAM via `PCSX.getMemPtr()[addr & 0x1FFFFF]`, registers via `PCSX.getRegisters()`.
 - plus the emulator's own API (`emu.read`, `emu.getState`, `emu.addMemoryCallback`; mGBA `emu:read8`, `emu:readRange`).
@@ -90,7 +90,8 @@ Pair it with `--mash` and a long `--frames` to sweep menus and dialogue cheaply.
 
 ## Per-emulator facts and gotchas
 
-**Mesen2 (SNES; also NES/GB/PCE):**
+**Mesen / MesenCE (SNES, GBA):**
+- **GBA:** emu.py uses Mesen for `.gba` when `<Mesen dir>/Firmware/gba_bios.bin` exists, else mGBA; `--emu` forces either. Mesen gives a windowless run, `L.on_exec`, Lua savestates and `--state-every`, none of which mGBA has. GBA hooks take plain bus addresses (ROM `0x08000000`, EWRAM `0x02000000`, IWRAM `0x03000000`); `L.rom_off` strips the ROM base. Battery saves are `Saves/<rom name>.sav`.
 - `Mesen.exe --testRunner --timeout=N rom script.lua`. `--timeout` is undocumented and defaults to 100 s, which is why the old "~100 s wall limit" chain scripts existed. On timeout it exits 127 or -1.
 - `settings.json` beside the exe means portable mode (no first-run wizard hang). It needs `"AllowIoOsAccess": true` or Lua `io` is nil; emu.py bootstraps this.
 - Set input in the `inputPolled` event.
@@ -98,9 +99,9 @@ Pair it with `--mash` and a long `--frames` to sweep menus and dialogue cheaply.
 - Runs at ~150 fps headless, so 900 frames take ~6 s.
 - Parallel runs need separate `--out` dirs.
 - A state from another Mesen version (header bytes 3–6, e.g. the user's 2.2.1 vs a 2.1.1 in `tools/`) loads black. emu.py re-stamps a copy with the local version and warns; if that still fails, run the user's Mesen with `--emu`.
-- `--sav` copies to `<exe dir>/Saves/<rom name>.srm` for the run and puts back whatever was there. A file it displaced is also copied to `<out>/_saves_backup.srm`, in case the run is killed before it restores.
+- `--sav` copies to `<exe dir>/Saves/<rom name>.srm` (`.sav` on GBA) for the run and puts back whatever was there. A file it displaced is also copied to `<out>/_saves_backup.*`, in case the run is killed before it restores.
 
-**mGBA (GBA):**
+**mGBA (GBA fallback):**
 - A Qt window opens, which is unavoidable.
 - Flags: `-C fpsTarget=3000 -C audioSync=0 -C videoSync=0 -C volume=0 --script s.lua [-t state] rom`.
 - Set keys in the `keysRead` callback; setting them in `frame` races Qt polling.

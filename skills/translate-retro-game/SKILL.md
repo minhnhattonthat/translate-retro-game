@@ -75,7 +75,7 @@ When the user reports an in-game bug, reproduce it with `emu.py` first, from the
 
 | Script | Use |
 |---|---|
-| `emu.py ROM --out DIR --route r.txt --shot-every 300 --smoke --sheet [--sav F] [--script x.lua]..` | Headless boot, scripted input, screenshots, contact sheet, saves, Lua hooks. Mesen2 .sfc, mGBA .gba, DeSmuME .nds, PCSX-Redux .cue. Exit 0 ok / 2 Lua error / 3 smoke fail / 124 timeout |
+| `emu.py ROM --out DIR --route r.txt --shot-every 300 --smoke --sheet [--sav F] [--script x.lua]..` | Headless boot, scripted input, screenshots, contact sheet, saves, Lua hooks. Mesen .sfc, Mesen (with BIOS) or mGBA .gba, DeSmuME .nds, PCSX-Redux .cue. Exit 0 ok / 2 Lua error / 3 smoke fail / 124 timeout |
 | `lua/probes/*.lua` | `--script` probes: memory watch, RAM dump, PPU dump, SNES ROM-read and DMA logs |
 | `sheet.py DIR --changed 0.02 [--from N --to M] [--crop x,y,w,h] [--zoom N] [--compare DIR2]` | One contact-sheet PNG from many frames; read it instead of individual shots |
 | `jp_left.py BUILT --sjis\|--tbl jp.tbl [--slots F] [--known F] [--gba-ptrs] [--orig ORIG]` | Japanese runs still in the build; exit 1 if any. `--slots`/`--gba-ptrs` keep only text a pointer still reaches |

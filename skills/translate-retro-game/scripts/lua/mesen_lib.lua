@@ -1,8 +1,11 @@
--- Mesen2 (SNES) driver library. emu.py prepends globals: OUT, ERRFILE, ROUTE, FRAMES, SHOT_EVERY, SHOTS,
--- STATE_IN, STATE_OUT, STATE_EVERY, MASH, MASH_KEY. A user script (--script) is appended after the driver and may
--- use L.*.
+-- Mesen2 / MesenCE (SNES, GBA) driver library. emu.py prepends globals: SYSTEM, OUT, ERRFILE, ROUTE, FRAMES,
+-- SHOT_EVERY, SHOTS, STATE_IN, STATE_OUT, STATE_EVERY, MASH, MASH_KEY. A user script (--script) is appended after
+-- the driver and may use L.*.
 L = { frame = 0 }
+local gba = SYSTEM == "gba"
 local snes, cpuMem = emu.cpuType.snes, emu.memType.snesMemory
+if gba then snes, cpuMem = emu.cpuType.gba, emu.memType.gbaMemory end
+local ALL = gba and 0x0FFFFFFF or 0xFFFFFF  -- whole bus; a GBA range ending at 0xFFFFFFFF never fires
 
 local logf = assert(io.open(OUT .. "log.txt", "w"))
 function L.log(s) logf:write(tostring(s) .. "\n"); logf:flush() end
@@ -17,12 +20,19 @@ function L.fail(msg)
 end
 -- Mesen swallows Lua errors and idles until timeout: wrap every callback so errors stop the run with exit 2.
 function L.safe(fn) return function(...) local ok, e = pcall(fn, ...); if not ok then L.fail(e) end end end
--- LoROM CPU address -> file offset (memory callbacks report CPU addresses). HiROM: a & 0x3FFFFF.
-function L.rom_off(a) return ((a & 0x7F0000) >> 1) | (a & 0x7FFF) end
+-- CPU address -> file offset (memory callbacks report CPU addresses). SNES LoROM; HiROM: a & 0x3FFFFF.
+function L.rom_off(a) return gba and (a & 0x1FFFFFF) or (((a & 0x7F0000) >> 1) | (a & 0x7FFF)) end
 -- Callbacks match the CPU address actually used, and code runs in either bank mirror ($00-$3F/$80-$BF,
--- $40-$7D/$C0-$FF), so a range inside one half is also hooked at addr ^ $800000. Not for WRAM banks $7E-$7F.
+-- $40-$7D/$C0-$FF), so a range inside one half is also hooked at addr ^ $800000. WRAM ($7E0000-$7FFFFF) is
+-- hooked as work RAM instead, which also catches the $00-$3F:0000-1FFF mirror most code uses for low WRAM.
+-- GBA: plain CPU addresses (ROM 0x08000000, EWRAM 0x02000000, IWRAM 0x03000000).
 local function hook(kind, lo, hi, fn)
   local cb = L.safe(fn)
+  if gba then return emu.addMemoryCallback(cb, kind, lo, hi, snes, cpuMem) end
+  if lo >= 0x7E0000 and hi <= 0x7FFFFF and kind ~= emu.callbackType.exec then
+    return emu.addMemoryCallback(function(a, v) return cb(a + 0x7E0000, v) end, kind, lo - 0x7E0000,
+      hi - 0x7E0000, snes, emu.memType.snesWorkRam)
+  end
   local id = emu.addMemoryCallback(cb, kind, lo, hi, snes, cpuMem)
   local bank = lo >> 16
   if lo >> 23 == hi >> 23 and (bank & 0x7F) < 0x7E then
@@ -33,16 +43,30 @@ end
 function L.on_exec(lo, hi, fn) return hook(emu.callbackType.exec, lo, hi, fn) end
 function L.on_read(lo, hi, fn) return hook(emu.callbackType.read, lo, hi, fn) end   -- fn(addr, value)
 function L.on_write(lo, hi, fn) return hook(emu.callbackType.write, lo, hi, fn) end -- fn(addr, value)
-function L.pc() local s = emu.getState(); return (s["cpu.k"] << 16) | s["cpu.pc"] end
+function L.pc()
+  local s = emu.getState()
+  if gba then return s["cpu.pipeline.execute.address"] end  -- r15 runs two instructions ahead
+  return (s["cpu.k"] << 16) | s["cpu.pc"]
+end
 local function grab(mt, n)
   local t = {}
   for a = 0, n - 1 do t[#t + 1] = string.char(emu.read(a, mt)) end
   return table.concat(t)
 end
--- <prefix>.vram.bin (64 KB), .pal.bin (CGRAM 512 B), .oam.bin (544 B), .ppu.txt (PPU registers: BG mode, layer
--- tilemap/chr addresses). A relative prefix lands in --out.
+-- SNES: <prefix>.vram.bin (64 KB), .pal.bin (CGRAM 512 B), .oam.bin (544 B), .ppu.txt (PPU registers: BG mode,
+-- layer tilemap/chr addresses). GBA: .vram.bin (96 KB), .pal.bin (1 KB), .oam.bin (1 KB), .io.bin (0x04000000,
+-- 1 KB: DISPCNT, BGxCNT...). A relative prefix lands in --out.
 function L.dump_ppu(prefix)
   prefix = prefix or "ppu"
+  if gba then
+    L.write_file(prefix .. ".vram.bin", grab(emu.memType.gbaVideoRam, 0x18000))
+    L.write_file(prefix .. ".pal.bin", grab(emu.memType.gbaPaletteRam, 0x400))
+    L.write_file(prefix .. ".oam.bin", grab(emu.memType.gbaSpriteRam, 0x400))
+    local t = {}
+    for a = 0x04000000, 0x040003FF do t[#t + 1] = string.char(emu.read(a, cpuMem)) end
+    L.write_file(prefix .. ".io.bin", table.concat(t))
+    return
+  end
   L.write_file(prefix .. ".vram.bin", grab(emu.memType.snesVideoRam, 0x10000))
   L.write_file(prefix .. ".pal.bin", grab(emu.memType.snesCgRam, 0x200))
   L.write_file(prefix .. ".oam.bin", grab(emu.memType.snesSpriteRam, 0x220))
@@ -51,7 +75,13 @@ function L.dump_ppu(prefix)
   table.sort(keys)
   L.write_file(prefix .. ".ppu.txt", table.concat(keys, "\n") .. "\n")
 end
-function L.dump_ram(path) L.write_file(path, grab(emu.memType.snesWorkRam, 0x20000)) end -- WRAM $7E0000-$7FFFFF
+function L.dump_ram(path)  -- SNES WRAM $7E0000-$7FFFFF; GBA EWRAM (256 KB) then IWRAM (32 KB), as mgba_lib
+  if gba then
+    L.write_file(path, grab(emu.memType.gbaExtWorkRam, 0x40000) .. grab(emu.memType.gbaIntWorkRam, 0x8000))
+  else
+    L.write_file(path, grab(emu.memType.snesWorkRam, 0x20000))
+  end
+end
 
 -- Savestates only work inside an exec callback: queue jobs, run them on the next instruction.
 local jobs, execId = {}, nil
@@ -61,14 +91,14 @@ local function service()
   if job.op == "save" then L.write_file(job.path, emu.createSavestate())
   else emu.loadSavestate(L.read_file(job.path)) end
   if #jobs == 0 then
-    emu.removeMemoryCallback(execId, emu.callbackType.exec, 0, 0xFFFFFF, snes, cpuMem)
+    emu.removeMemoryCallback(execId, emu.callbackType.exec, 0, ALL, snes, cpuMem)
     execId = nil
   end
   if job.done then job.done() end
 end
 local function schedule(job)
   jobs[#jobs + 1] = job
-  if not execId then execId = L.on_exec(0, 0xFFFFFF, service) end
+  if not execId then execId = L.on_exec(0, ALL, service) end
 end
 function L.save_state(path, done) schedule({ op = "save", path = path, done = done }) end
 function L.load_state(path, done) schedule({ op = "load", path = path, done = done }) end

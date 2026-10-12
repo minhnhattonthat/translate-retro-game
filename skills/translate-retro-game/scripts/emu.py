@@ -6,8 +6,9 @@
                   [--emu EXE] [--bios BIN] [--debugger] [--timeout SEC] [--sheet] [--smoke]
 
 System from the ROM extension:
-  .sfc/.smc          -> Mesen2 (--testRunner, no window)
-  .gba               -> mGBA (Qt window opens; unavoidable)
+  .sfc/.smc          -> Mesen (MesenCE or Mesen2; --testRunner, no window)
+  .gba               -> Mesen when <Mesen dir>/Firmware/gba_bios.bin exists (no window; exec hooks; Lua states),
+                        else mGBA (HLE BIOS; Qt window opens). --emu picks either.
   .nds               -> DeSmuME (window opens; Lua via lua51.dll beside the exe; desmume.ini restored after;
                         unthrottled + JIT, --debugger keeps the interpreter for exec hooks)
   .cue/.bin/.iso/.chd -> PCSX-Redux (-no-ui; SPU muted, 8x speed; --bios or env PSX_BIOS, else OpenBIOS)
@@ -41,9 +42,7 @@ MESEN_SETTINGS = '{"Debug": {"ScriptWindow": {"AllowIoOsAccess": true}}}'
 DS_SLOT_IN, DS_SLOT_OUT = 9, 8
 
 
-def find_emu(system, explicit):
-    if explicit:
-        return explicit
+def find_emu(system, required=True):
     env, name = EXE[system]
     if os.environ.get(env):
         return os.environ[env]
@@ -51,7 +50,8 @@ def find_emu(system, explicit):
         hits = sorted(glob.glob(pattern, recursive=True))
         if hits:
             return os.path.abspath(hits[0])
-    sys.exit(f"{name} not found: pass --emu or set {env}")
+    if required:
+        sys.exit(f"{name} not found: pass --emu or set {env}")
 
 
 def lua_value(v):
@@ -170,7 +170,15 @@ def run(a):
         sys.exit("give --route, --route-str or --frames")
     if a.state_every and system == "nds":
         sys.exit("--state-every: DeSmuME saves numbered slots only; use --state-out per route instead")
-    exe = find_emu(system, a.emu)
+    exe = a.emu
+    if system == "gba" and not exe:  # Mesen first (no window, exec hooks, Lua savestates) if it has the BIOS
+        m = find_emu("snes", required=False)
+        exe = m if m and os.path.exists(os.path.join(os.path.dirname(m), "Firmware", "gba_bios.bin")) else None
+    exe = exe or find_emu(system)
+    mesen = os.path.basename(exe).lower().startswith("mesen")
+    if mesen and system == "gba" and not os.path.exists(os.path.join(os.path.dirname(exe), "Firmware", "gba_bios.bin")):
+        sys.exit("Mesen has no built-in GBA BIOS (games boot black): put the user's console dump at "
+                 f"{os.path.join(os.path.dirname(exe), 'Firmware', 'gba_bios.bin')}, or pass --emu mGBA.exe")
     out = os.path.abspath(a.out)
     rom = os.path.abspath(a.rom)
     stem = os.path.splitext(os.path.basename(rom))[0]
@@ -192,12 +200,13 @@ def run(a):
               file=sys.stderr)
     err = os.path.join(out, "lua_error.txt")
     g = {"OUT": out + "/", "ERRFILE": err, "FRAMES": a.frames, "SHOT_EVERY": a.shot_every, "SHOTS": shots,
-         "MASH": a.mash, "MASH_KEY": a.mash_key or MASH_KEY.get(system, "a"), "STATE_EVERY": a.state_every}
+         "MASH": a.mash, "MASH_KEY": a.mash_key or MASH_KEY.get(system, "a"), "STATE_EVERY": a.state_every,
+         "SYSTEM": system}
     if system == "psx":  # LuaJIT inside PCSX-Redux: pass the route inline rather than relying on io
         g["ROUTE_STEPS"] = route and read_route(route)
     else:
         g["ROUTE"] = route
-    if system == "snes" and a.state_in:
+    if mesen and a.state_in:
         g["STATE_IN"] = mesen_state(exe, os.path.abspath(a.state_in), out)
     if system == "psx":
         g["STATE_IN"] = a.state_in and os.path.abspath(a.state_in)
@@ -211,9 +220,9 @@ def run(a):
         g["STATE_OUT"] = a.state_out and os.path.abspath(a.state_out)
     head = "\n".join(f"{k} = {lua_value(v)}" for k, v in g.items() if v is not None)
     head += "".join(f"\n{kv.split('=', 1)[0].strip()} = {kv.split('=', 1)[1]}" for kv in a.var or [])
-    parts = [head, open(os.path.join(HERE, "lua", LIB[system]), encoding="utf-8").read()]
-    for s in a.script or []:
-        parts.append(open(s, encoding="utf-8").read())
+    parts = [head, open(os.path.join(HERE, "lua", LIB["snes" if mesen else system]), encoding="utf-8").read()]
+    for s in a.script or []:  # wrapped so a top-level error (e.g. a probe's assert) exits 2 instead of vanishing
+        parts.append("L.safe(function()\n" + open(s, encoding="utf-8").read() + "\nend)()")
     lua = os.path.join(out, f"{stem}.lua" if system == "nds" else "_run.lua")
     with open(lua, "w", encoding="utf-8") as f:
         f.write("\n".join(parts) + "\n")
@@ -222,17 +231,17 @@ def run(a):
     cwd = None
     sav = None
     if a.sav:  # fresh copy per run: the game writes to the copy, never to the user's file
-        dest = {"snes": os.path.join(os.path.dirname(exe), "Saves", stem + ".srm"),
-                "gba": os.path.join(out, stem + ".sav"), "nds": os.path.join(out, stem + ".dsv"),
-                "psx": os.path.join(out, "memcard1.mcd")}[system]
-        if system == "snes":  # Mesen (portable) reads <exe dir>/Saves/<rom name>.srm; put back what was there
+        dest = {"gba": os.path.join(out, stem + ".sav"), "nds": os.path.join(out, stem + ".dsv"),
+                "psx": os.path.join(out, "memcard1.mcd")}.get(system)
+        if mesen:  # Mesen (portable) reads <exe dir>/Saves/<rom name>.srm (.sav on GBA); put back what was there
+            dest = os.path.join(os.path.dirname(exe), "Saves", stem + (".sav" if system == "gba" else ".srm"))
             os.makedirs(os.path.dirname(dest), exist_ok=True)
             restore.append((dest, open(dest, "rb").read() if os.path.exists(dest) else None))
             if restore[-1][1] is not None:  # on-disk copy survives even if this run is killed before restoring
-                shutil.copy(dest, os.path.join(out, "_saves_backup.srm"))
+                shutil.copy(dest, os.path.join(out, "_saves_backup" + os.path.splitext(dest)[1]))
         shutil.copy(a.sav, dest)
         sav = dest
-    if system == "snes":
+    if mesen:
         mesen_portable(exe)
         cmd = [exe, "--testRunner", f"--timeout={a.timeout}", rom, lua]
     elif system == "gba":

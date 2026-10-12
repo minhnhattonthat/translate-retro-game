@@ -19,5 +19,5 @@
   - The VWF tile buffer gets wiped by window clears and map scroll (a black bar in-game), so test scrolling and menu reopening.
 - **Text engines** often jump (`F2`/`F3`-style goto/call codes) into shared fragments. The extractor must follow jumps, and the encoder must keep fragment addresses valid, or one review fix breaks every jump (seen as "intro stuck at black screen").
 - **Checksum:** complement at `+0x2C`, sum at `+0x2E` of the header (`$FFDC/$FFDE` HiROM, `$7FDC/$7FDE` LoROM). Do it only in the release step.
-- **Emulator:** Mesen2 via `emu.py` (`.sfc`/`.smc`); see `setup.md`.
+- **Emulator:** MesenCE (or Mesen2) via `emu.py` (`.sfc`/`.smc`); see `setup.md`.
 - **Release:** BPS.
