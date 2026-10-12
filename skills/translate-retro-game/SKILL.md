@@ -1,6 +1,6 @@
 ---
 name: translate-retro-game
-description: Playbook and tested tools for fan-translating Japanese retro games (SNES, GBA, NDS, PS1) into English. Covers tool setup, ROM recon, text extraction and insertion, fonts and VWF, batch translation with parallel agents, headless emulator QA (Mesen2, mGBA, DeSmuME, PCSX-Redux), leftover-Japanese scans and BPS/xdelta releases. Use it for any work in a ROM-hacking or game-translation repo, including starting a new game, translating script batches, fixing overflowing, garbled or untranslated text, testing a build in an emulator and packaging a patch, even when the user doesn't name the skill.
+description: Playbook and tested tools for fan-translating Japanese retro games (SNES, GBA, NDS, PS1) into English. Covers tool setup, ROM recon, text extraction and insertion, fonts and VWF, text drawn as graphics, batch translation with parallel agents, headless emulator QA (Mesen2, mGBA, DeSmuME, PCSX-Redux), leftover-Japanese scans and BPS/xdelta releases. Use it for any work in a ROM-hacking or game-translation repo, including starting a new game, translating script batches, fixing overflowing, garbled or untranslated text, testing a build in an emulator and packaging a patch, even when the user doesn't name the skill.
 ---
 
 # Translate a retro game
@@ -22,6 +22,7 @@ This skill closes all three gaps. `$SKILL` below means the directory containing 
 - **Close the emulator before building.** Some emulators (DuckStation, for one) keep the output image locked.
 - **Promote any helper you use twice** into the repo's `tools/` and commit it. Temp and scratch dirs die with the session; whole emulator harnesses were lost this way.
 - **Freeze tools while translator agents run.** Editing the wrap code mid-run broke three agents.
+- **Wait on long runs by notification.** Start emulator tours and agent batches as background tasks where your harness has them, and act on the completion notice; a sleep-and-poll loop burns context.
 - **Never push, publish or upload a release without the user's say-so.**
 
 ## Translation defaults (confirm with the user, then record in `glossary.md`)
@@ -36,7 +37,9 @@ These are what earlier users settled on. Offer them as defaults instead of guess
   - honorifics and name order (projects have gone both ways);
   - credits in Japanese or English;
   - the romanization source for names (official, earlier patch, Hepburn);
-  - whether specs and plans need approval or are pre-approved.
+  - whether specs and plans need approval or are pre-approved (pre-approved means keep going through checkpoints, reporting at the end);
+  - text drawn as graphics (titles, menus, banners) is in scope by default; ask which, if any, to leave Japanese;
+  - saves, memory cards or savestates the user already has: they reach late scenes that routes take hours to reach.
 
 ## Step 0: Set up the repo (once; skip if AGENTS.md or CLAUDE.md already lists build/check/smoke commands)
 
@@ -55,14 +58,14 @@ Each phase ends on a checkable condition. Do the phases in order. Skipping the i
 
 | # | Phase | Done when | Read |
 |---|---|---|---|
-| 1 | **Research and recon**: earlier patches, docs, header, compression, text encoding, pointer tables, control codes | `docs/re/` or `notes/` records encoding, pointer format, text ranges and free space | `references/pipeline.md` §Recon, platform file |
+| 1 | **Research and recon**: earlier patches, docs, header, compression, text encoding, pointer tables, control codes, graphics text | `docs/re/` or `notes/` records encoding, pointer format, text ranges and free space; the graphics-text survey lists every tile-drawn Japanese element | `references/pipeline.md` §Recon, `references/graphics.md` §Survey, platform file |
 | 2 | **Identity build**: unpack then repack with no edits | the rebuilt ROM or disc is byte-identical to the original, as a test | `references/pipeline.md` §Identity |
 | 3 | **Extract** to the repo's text format | roundtrip test: re-encoding every extracted string gives the original bytes, and text ranges are fully covered | `references/pipeline.md` §Extract, `scripts/tbl.py` |
-| 4 | **Engine spike and marker build**: font/VWF decision, every line replaced by `[id] marker text` | the marker ROM boots, every text box shows its id, and non-text "strings" are found and excluded | `references/pipeline.md` §Marker, platform file |
-| 5 | **Translate** in batches with parallel agents | the batch check reports 0 errors, the glossary is updated, and the reviewer pass finds no Critical/Important issues | `references/translation.md` |
+| 4 | **Engine spike and marker build**: font/VWF decision, every line replaced by `[id] marker text` | the marker ROM boots, every text box shows its id, non-text "strings" are found and excluded, and every box variant's width is measured in-game (the width gate) | `references/pipeline.md` §Marker, platform file |
+| 5 | **Translate** in batches with parallel agents, only after the width gate | the batch check reports 0 errors, the glossary is updated, and the reviewer pass finds no Critical/Important issues | `references/translation.md` |
 | 6 | **Insert, fit, check** | build green: width/overflow lint clean, control codes matched, `romdiff.py` shows no writes outside allowed ranges | `references/pipeline.md` §Checks |
-| 7 | **QA in the emulator** | smoke passes; routes through changed scenes give contact sheets you have looked at; `jp_left.py` reports no unintended Japanese | `references/emulator-qa.md` |
-| 8 | **Release** | the patch is built, re-applied and verified; README has the base ROM hashes; zip holds patch + README | `references/pipeline.md` §Release |
+| 7 | **QA in the emulator** | smoke passes; routes through changed scenes give contact sheets you have looked at; every graphics-text row is English in a zoomed cold-boot shot | `references/emulator-qa.md`, `references/graphics.md` |
+| 8 | **Release** | `jp_left.py` on the release build reports no unintended Japanese; the patch is built, re-applied and verified; README has the base ROM hashes; zip holds patch + README | `references/pipeline.md` §Release |
 
 Platform notes are loaded only for the platform at hand: `references/platform-snes.md`, `platform-gba.md`, `platform-nds.md`, `platform-ps1.md`.
 
@@ -72,9 +75,12 @@ When the user reports an in-game bug, reproduce it with `emu.py` first, from the
 
 | Script | Use |
 |---|---|
-| `emu.py ROM --out DIR --route r.txt --shot-every 300 --smoke --sheet` | Headless boot, scripted input, screenshots, contact sheet. Mesen2 .sfc, mGBA .gba, DeSmuME .nds, PCSX-Redux .cue. Exit 0 ok / 2 Lua error / 3 smoke fail / 124 timeout |
-| `sheet.py DIR --changed 0.02` | One contact-sheet PNG from many frames; read it instead of individual shots |
-| `jp_left.py BUILT --sjis\|--tbl jp.tbl [--gba-ptrs] [--orig ORIG] [--range ..] [--halfwidth]` | Japanese runs still in the build; exit 1 if any. On GBA use `--gba-ptrs` without `--orig` to list only text a pointer can still reach; on one game that turned ~1,950 runs into 41, including broken pointers into old Japanese |
+| `emu.py ROM --out DIR --route r.txt --shot-every 300 --smoke --sheet [--sav F] [--script x.lua]..` | Headless boot, scripted input, screenshots, contact sheet, saves, Lua hooks. Mesen2 .sfc, mGBA .gba, DeSmuME .nds, PCSX-Redux .cue. Exit 0 ok / 2 Lua error / 3 smoke fail / 124 timeout |
+| `lua/probes/*.lua` | `--script` probes: memory watch, RAM dump, PPU dump, SNES ROM-read and DMA logs |
+| `sheet.py DIR --changed 0.02 [--from N --to M] [--crop x,y,w,h] [--zoom N] [--compare DIR2]` | One contact-sheet PNG from many frames; read it instead of individual shots |
+| `jp_left.py BUILT --sjis\|--tbl jp.tbl [--slots F] [--known F] [--gba-ptrs] [--orig ORIG]` | Japanese runs still in the build; exit 1 if any. `--slots`/`--gba-ptrs` keep only text a pointer still reaches |
+| `relsearch.py`, `dis65816.py`, `disasm.py` (capstone), `ramsearch.py` | Recon: relative search, SNES / ARM / MIPS disassembly + xref, cheat-style RAM search |
+| `tiles.py render\|import\|map`, `vramfind.py` | Graphics text: render tiles and BG maps from dumps, re-import edited PNGs, find VRAM tiles in the ROM (`references/graphics.md`) |
 | `bps.py make ORIG BUILT OUT.bps` / `apply` / `snes-checksum` | Patch with built-in re-apply check; SNES header checksum |
 | `romdiff.py ORIG NEW RANGES..` | Fails on any byte changed outside allowed ranges |
 | `tbl.py` | Table codec with control codes, roundtrip-exact; import it in extract/insert code |
@@ -83,3 +89,5 @@ When the user reports an in-game bug, reproduce it with `emu.py` first, from the
 ## Ending a session
 
 Update the instructions file (AGENTS.md/CLAUDE.md) or the notes status line: what's done, what's next, open bugs with savestate names. Commit any helper you used twice. Agent memory is per-folder and invisible to other repos, so put durable project knowledge in the repo.
+
+If you fixed or extended anything under `$SKILL` (a script, a Lua library, a reference), tell the user in your final report, with the file and a one-line summary of the change. The copy you edited is usually per-project; unreported fixes stay stranded there and the next game hits the same bug.

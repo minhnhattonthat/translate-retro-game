@@ -7,9 +7,10 @@ Distilled from eight finished fan translations across SNES, GBA, NDS and PS1. Re
 - Recon
 - Identity build
 - Extract
-- Marker build and engine spike
+- Marker build and engine spike (incl. the width gate)
 - Checks
 - Pitfalls that reached a user's playtest
+- Building on an earlier patch
 - Release
 
 ## Repo layout and text format
@@ -42,8 +43,12 @@ Distilled from eight finished fan translations across SNES, GBA, NDS and PS1. Re
    - or log the string-draw routine in the emulator (`references/emulator-qa.md` §Hooks);
    - build `tbl/jp.tbl`;
    - list control codes with their argument counts. A wrong argument count desyncs everything after it.
+   - **Confirm the font by hooking the draw call**, not by how glyphs look: games carry several fonts and tables. A table built by eye needs a cross-check against a decoded known string; after fixing it, regenerate every `jp` field from the ROM.
+   - Note the text orientation: vertical text, or a handheld game played sideways, changes the whole font and box plan.
 5. **Pointers:** find the tables and the format (16-bit + bank, 24-bit, GBA `0x08000000|off`). Note which code reads them.
-6. Record everything in `docs/re/*.md`, one file per subsystem, with an index line in AGENTS.md/CLAUDE.md.
+6. **Graphics text:** survey tile-drawn Japanese (`references/graphics.md` §Survey).
+7. Record everything in `docs/re/*.md`, one file per subsystem, with an index line in AGENTS.md/CLAUDE.md.
+8. RE helpers in `$SKILL/scripts/`: `relsearch.py` (relative search), `dis65816.py` (SNES), `disasm.py` (ARM/THUMB/MIPS via capstone), and the Lua probes for ROM-read, DMA and memory watches (`emulator-qa.md` §Hooks). Copy one into `tools/` once you start adapting it.
 
 ## Identity build
 
@@ -53,11 +58,15 @@ Unpack → repack with no edits → compare bytes. Make this the first test in t
 
 - Decode every string through the table codec (`scripts/tbl.py`). Unknown bytes become `[XX]` so they roundtrip.
 - **Roundtrip test:** `encode(decode(bytes)) == bytes` for every string.
-- **Coverage test:** the text ranges are fully covered, with no unexplained gaps. A gap is usually text you missed, or data you are about to corrupt.
+- **Coverage test, run against the ORIGINAL ROM:** the text ranges are fully covered, with no unexplained gaps. A gap is usually text you missed, or data you are about to corrupt.
+  - Dump every pointer target, including strings referenced from the EXE, arm9/overlays or code banks, not only the script banks.
+  - An unknown control code must not end a string: decode it as `[XX]` and keep going, then check the next bytes still decode. Strings silently cut at the first unknown code left the rest Japanese.
+- **Space-padded fixed-length strings** (names, item fields) get re-padded to their length on insert; the game may compare or centre them by length.
 - **Mark non-text explicitly.** Data that decodes as text, translated by mistake, has broken games repeatedly:
   - portrait data dumped as "text" gave miscoloured portraits;
   - a kinsoku (line-break rule) table;
-  - font-map runs.
+  - font-map runs;
+  - magic and signature strings (save-file headers, file IDs) that code compares byte for byte.
   - One project ended up flagging 354 entries as `data`; expect a few hundred.
 
 ## Marker build and engine spike
@@ -72,6 +81,22 @@ Unpack → repack with no edits → compare bytes. Make this the first test in t
   - digraph glyphs when the renderer ignores advance widths.
 - Try paths in order of cost and boot each one. A black-screen-after-logo bug once came from a font patch that was never booted.
 - Users usually prefer engine work to abbreviation, so budget for the bigger change: widen boxes, add lines or pages, move to free space.
+
+### Width gate (before any translator dispatch)
+
+Translators write to the limits you give them; a guessed limit means a re-fit pass over every batch. Measure each box variant in-game with the marker build or a stress build (`--qa ID=text`-style override of single lines), and record px/chars and lines per variant in the project's window data:
+- portrait box vs no-portrait box;
+- name tag (also try the longest glossary name);
+- narration;
+- choices;
+- the last line, where the page-wait arrow takes space;
+- menus, labels, item and skill names.
+
+Then boot a **glyph torture line**: all printable ASCII plus double spaces, so missing glyphs and wrong widths show at once. When the marker build hangs, bisect by tables (half the lines marked, half original) until one entry is left.
+
+Measure every game fresh; limits from another game, even the same engine, have been wrong. The lint warns on any line whose box variant has no measured budget yet.
+
+**Done when** every variant has a measured budget and the torture line renders correctly.
 
 ## Checks
 
@@ -91,10 +116,10 @@ Wire all of these into the one-command check (Step 0) so the pre-commit hook run
   - Graphics chunks stay inside the windows the code can reach.
 - **Leftover Japanese:**
   - text side: regex `[぀-ヿ一-鿿]` over every `en`;
-  - ROM side: `scripts/jp_left.py`. On GBA, run `--gba-ptrs` **without** `--orig`. Relocation leaves the old Japanese unreferenced, and broken pointers can land mid-line in it; `--orig` hides that case, because the bytes the pointer lands on differ from what was at that offset originally. Add `--halfwidth` for debug and system text, then triage, since it is noisier;
+  - ROM side: `scripts/jp_left.py`. Best: `--slots FILE` listing every pointer slot your insert step writes, so only text a pointer reaches is reported (on one game 185 `--gba-ptrs` hits became 0 real ones); `--known FILE` lists intended-Japanese offsets to skip. On GBA without a slot list, run `--gba-ptrs` **without** `--orig`. Relocation leaves the old Japanese unreferenced, and broken pointers can land mid-line in it; `--orig` hides that case, because the bytes the pointer lands on differ from what was at that offset originally. Add `--halfwidth` for debug and system text, then triage, since it is noisier;
   - runtime side: the draw-hook scan (`emulator-qa.md`).
   - A text-side check alone once passed with 3 Japanese lines still reachable behind a pointer table.
-- **Release gate:** lint → roundtrip → build → tests → smoke, stop at the first failure.
+- **Release gate:** lint → roundtrip → build → tests → smoke → `jp_left.py`, stop at the first failure.
 
 ## Pitfalls that reached a user's playtest
 
@@ -107,6 +132,23 @@ Check for these before handing a build over:
 - Timed cutscenes cleared the page before English (2× the glyphs) finished typing. Measure display time per page, then halve the waits or speed up typing.
 - Greedy wrap left one-word widows. Use balanced wrap.
 - A fix applied to only one of two duplicate justify routines ("Sa ve").
+- A moved string kept one stale pointer: strings can have several (MIPS `lui`/`addiu` pairs, ARM literal pools, a second table). Find all before relocating.
+- A player-entered or renamed name broke after save → reload. Test the round trip for any name the game saves.
+- Headers and labels sat off-centre, and grey-out (disabled item) spans covered the wrong letters: both come from per-label tables sized for Japanese. Re-centre and regenerate the span tables from the English widths.
+- Timers, counters and other digits the code draws were "translated". Keep native digits the code writes; translate only the text around them.
+
+Tool-side pitfalls:
+- JSON written on Windows got CRLF and churned every diff: open writers with `newline='\n'`.
+- Pillow text rendering differs between machines: use `layout_engine=ImageFont.Layout.BASIC`.
+- Windows-reserved file names (`CON`, `AUX`, `NUL`, `PRN`, `COM1`) as scene or file ids break checkout; prefix them.
+
+## Building on an earlier patch
+
+When an older fan patch exists and the user wants to build on it:
+- Apply the old patch to a clean original and use that as the base ROM; record both hashes. The identity test runs against the patched base.
+- Diff base vs original (`romdiff.py`) to map what the old patch touched: text, relocated blocks, code hooks.
+- Relocated text leaves its old Japanese orphaned. Once no pointer reaches it (`jp_left.py --gba-ptrs`-style check, or your pointer dump), that space is free for reuse.
+- Ship one combined patch against the clean original, or document the apply order; credit the earlier authors.
 
 ## Release
 

@@ -1,11 +1,46 @@
 -- mGBA (GBA) driver library. emu.py prepends globals: OUT, ERRFILE, ROUTE, FRAMES, SHOT_EVERY, SHOTS,
--- STATE_OUT, MASH, MASH_KEY (state-in is loaded by emu.py via the -t flag). A user script (--script) is
--- appended after the driver and may use L.*.
+-- STATE_OUT, STATE_EVERY, MASH, MASH_KEY (state-in is loaded by emu.py via the -t flag). A user script (--script)
+-- is appended after the driver and may use L.*.
 L = { frame = 0 }
 
 local logf = assert(io.open(OUT .. "log.txt", "w"))
 function L.log(s) logf:write(tostring(s) .. "\n"); logf:flush() end
-function L.shot(name) emu:screenshot(OUT .. name) end
+local function outpath(p) return (p:match("^%a:") or p:match("^/")) and p or OUT .. p end
+function L.write_file(path, data) local f = assert(io.open(outpath(path), "wb")); f:write(data); f:close() end
+-- Watchpoints need mGBA 0.11+ (dev builds); 0.10 has no memory callbacks. fn(addr, value).
+local watches = {}
+local function arm(w) w.id = emu:setRangeWatchpoint(w.f, w.lo, w.hi, w.kind) end
+local function watch(lo, hi, kind, fn)
+  if not emu.setRangeWatchpoint then error("L.on_read/L.on_write need mGBA 0.11+ (setRangeWatchpoint)") end
+  local cb = L.safe(fn)
+  local w = { lo = lo, hi = hi, kind = kind, f = function(info) cb(info.address, info.newValue or info.oldValue) end }
+  arm(w); watches[#watches + 1] = w
+end
+function L.on_read(lo, hi, fn) watch(lo, hi, C.WATCHPOINT_TYPE.READ, fn) end
+function L.on_write(lo, hi, fn) watch(lo, hi, C.WATCHPOINT_TYPE.WRITE, fn) end
+function L.pc() return emu:readRegister("pc") end
+-- A watchpoint firing during the script's own readRange or screenshot deadlocks mGBA: lift them meanwhile.
+local function quiet(f)
+  for _, w in ipairs(watches) do emu:clearBreakpoint(w.id) end
+  f()
+  for _, w in ipairs(watches) do arm(w) end
+end
+function L.shot(name) quiet(function() emu:screenshot(OUT .. name) end) end
+-- <prefix>.vram.bin (96 KB), .pal.bin (1 KB: BG then OBJ), .oam.bin (1 KB), .io.bin (LCD registers
+-- 0x04000000-0x0400005F: DISPCNT, BGxCNT, scroll). A relative prefix lands in --out.
+function L.dump_ppu(prefix)
+  prefix = prefix or "ppu"
+  quiet(function()
+    L.write_file(prefix .. ".vram.bin", emu:readRange(0x06000000, 0x18000))
+    L.write_file(prefix .. ".pal.bin", emu:readRange(0x05000000, 0x400))
+    L.write_file(prefix .. ".oam.bin", emu:readRange(0x07000000, 0x400))
+    L.write_file(prefix .. ".io.bin", emu:readRange(0x04000000, 0x60))
+  end)
+end
+-- EWRAM (256 KB) then IWRAM (32 KB): file offset 0x40000 = 0x03000000.
+function L.dump_ram(path)
+  quiet(function() L.write_file(path, emu:readRange(0x02000000, 0x40000) .. emu:readRange(0x03000000, 0x8000)) end)
+end
 function L.finish(code) logf:close(); os.exit(code or 0) end
 function L.fail(msg)
   local f = io.open(ERRFILE, "a"); f:write(tostring(msg) .. "\n"); f:close()
@@ -65,6 +100,7 @@ callbacks:add("frame", L.safe(function()
   elseif (MASH or 0) > 0 and n % MASH < 6 then cur = mask(MASH_KEY or "a")
   else cur = 0 end
   if ((SHOT_EVERY or 0) > 0 and n % SHOT_EVERY == 0) or shotset[n] then L.shot(string.format("f%06d.png", n)) end
+  if (STATE_EVERY or 0) > 0 and n % STATE_EVERY == 0 then emu:saveStateFile(string.format("%ss%06d.ss0", OUT, n), 31) end
   for _, fn in ipairs(frameFns) do fn(n) end
   local stop = FRAMES and n >= FRAMES or (not FRAMES and L.route_done())
   if stop and not ending then

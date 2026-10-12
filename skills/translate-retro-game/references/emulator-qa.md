@@ -10,34 +10,60 @@
 4. **Broad tour:** only after layout/wrap/engine changes. Keep a baseline (page counts or band-diff hashes per scene) and compare against it. Without a baseline, a wrap change that broke 76 scenes was found only by a full re-tour (~1 h per tour).
 5. **The user's playtest** comes last, and only for feel and pacing.
 
+**Reach late scenes cheaply.** At project start, ask the user once for battery saves, memory cards and savestates near late scenes; replaying hours of game from a cold boot is the slowest route. Without them:
+- **Warp by RAM poke:** find the map/scene id with `ramsearch.py`, then write it from an `L.on_frame` hook and trigger a reload (door, menu exit).
+- **God mode** for action games: pin HP (or a timer) every frame from Lua so `--mash` routes survive fights.
+- `--state-every N` drops a state every N frames along a long route, so a later run starts from the nearest one.
+
 ## emu.py
 
 ```
 python -X utf8 $SKILL/scripts/emu.py ROM --out DIR [--route FILE | --route-str "900 -;4 start;300 -"]
-       [--frames N] [--shot-every N] [--shots 120,600] [--state-in S] [--state-out S]
-       [--mash N --mash-key a] [--script hooks.lua] [--bios BIN] [--debugger] [--timeout SEC] [--sheet] [--smoke]
+       [--frames N] [--shot-every N] [--shots 120,600] [--state-in S] [--state-out S] [--state-every N]
+       [--sav FILE] [--mash N --mash-key a] [--script hooks.lua].. [--var NAME=LUA]..
+       [--bios BIN] [--debugger] [--timeout SEC] [--sheet] [--smoke]
 ```
 
 - **Route file:** one step per line, `FRAMES BUTTONS`. Buttons are `-` (none) or `a+start+up`. `#` starts a comment. SNES buttons: a b x y l r start select up down left right. GBA: a b l r start select up down left right. NDS: a b x y l r start select up down left right lid, plus `t128,96` (touch the bottom screen at x,y). PS1: cross circle square triangle l1 r1 l2 r2 start select up down left right.
   - Hold a press 4–6 frames; a 1-frame tap is often missed.
-  - Wait on the screen you need, not on a frame count you hope is right. Mesen randomises SRAM per ROM, so fixed frame counts drift.
-- The run stops after `--frames` frames, or at the end of the route. Output: `f000300.png...`, `final.png`, `log.txt`, `_run.lua`.
+  - Wait on the screen you need, not on a frame count you hope is right. Mesen randomises SRAM per ROM, so fixed frame counts drift. Bisecting a bug the same way: test a screen condition (a pixel, a RAM flag) at each step, not a frame number.
+- The run stops after `--frames` frames, or at the end of the route. Output: `f000300.png...`, `final.png`, `log.txt`, `_run.lua`. `--shots` past the end of the run get a warning, not a shot.
+- **Fades and scrolls:** after a scroll or tile change, shoot every 1–2 frames through the transition (`--shots` list or a short `--shot-every`); a 60-frame cadence skips the frames where a half-drawn box or wrong tile shows.
 - `--mash N` presses `--mash-key` for 6 frames every N frames after the route ends, to click through dialogue. It needs `--frames`. Some games advance on B, not A. PS1 defaults to cross.
-- **Savestates:** `--state-out` at the end of a route, `--state-in` to start there.
+- `--sav FILE` boots with a battery save (`.srm`/`.sav`/`.dsv`) or PS1 memory card (`.mcd`); each run gets a fresh copy, and the user's file is never written. `--memcard` is the same flag.
+- **Savestates:** `--state-out` at the end of a route (its directory is created), `--state-in` to start there, `--state-every N` for `s<frame>.<ext>` along the way (not NDS).
   - Build a library: `work/states/<scene>.mss`, made from cold-boot routes so they can be regenerated after engine changes.
-  - **States keep the old VRAM and code:** after font, graphics or code edits, regenerate them from a cold boot.
+  - **States keep the old VRAM and code:** after font, graphics or code edits, regenerate them from a cold boot. On games that load from a file table (disc, NDS filesystem), a state can also hang after a rebuild moves files; regenerate it rather than debugging the build.
   - User-made states (e.g. `bug_menu.mss`) are the fastest reproduction. Ask for them when the user reports a bug.
 - **Exit codes:** 0 ok, 2 Lua error (message printed), 3 smoke failed, 124 timeout. Both emulators swallow Lua errors silently; the harness pcall-wraps every callback to surface them.
 - **Emulator lookup:** `--emu`, then env `MESEN`/`MGBA`/`DESMUME`/`PCSX_REDUX`, then `tools/**/` in this repo or a sibling repo. Where to get each emulator: `setup.md`.
 
 ## Hooks (`--script`)
 
-The user script is appended after the driver. Available:
+Scripts (`--script`, repeatable) are appended after the driver; `--var NAME=LUA` sets a global before them (`--var WATCH_LO=0x7E1000`, strings as `--var "MODE='read'"`). Available everywhere:
 - `L.on_frame(fn(n))`, `L.log(s)`, `L.shot("name.png")`, `L.frame`;
-- Mesen only: `L.on_exec(lo, hi, fn)`, `L.on_write(lo, hi, fn)`, `L.rom_off(cpu_addr)` (LoROM; for HiROM use `a & 0x3FFFFF`), `L.save_state(path, done)`, `L.load_state(path, done)`;
-- DeSmuME: `L.on_exec(addr, fn)` (wraps `memory.registerexec`); own API `memory.readbyte/readdword(addr)`, `memory.registerwrite(addr, size, fn)`;
-- PCSX-Redux: `L.on_exec(addr, fn)` (needs `--debugger`: debugger + interpreter, slower), `L.save_state(path)`; RAM via `PCSX.getMemPtr()[addr & 0x1FFFFF]`, registers via `PCSX.getRegisters()`;
-- plus the emulator's own API (`emu.read`, `emu.getState`, `emu.addMemoryCallback`; mGBA `emu.memory[...]`, `emu:read8`).
+- `L.on_read(lo, hi, fn)`, `L.on_write(lo, hi, fn)`: `fn(addr, ...)`, the rest is per emulator (Mesen/mGBA: value). mGBA needs 0.11+ (dev build); PS1 needs `--debugger`; DeSmuME sees CPU accesses only, not DMA;
+- `L.pc()`: the current program counter, for "who touched this" logs;
+- `L.dump_ppu(prefix)`: `<prefix>.vram.bin`, `.pal.bin`, `.oam.bin` (+ `.ppu.txt` PPU registers on SNES, `.io.bin` LCD registers on GBA/NDS; PS1 writes only `.vram.bin`, palettes live in it). A relative prefix lands in `--out`. File layouts: the comment above `L.dump_ppu` in each `lua/*_lib.lua`;
+- `L.dump_ram(path)`: SNES WRAM 128 KB, GBA EWRAM+IWRAM, NDS 4 MB / PS1 2 MB main RAM.
+
+Per emulator:
+- Mesen: `L.on_exec(lo, hi, fn)`, `L.rom_off(cpu_addr)` (LoROM; for HiROM use `a & 0x3FFFFF`), `L.save_state(path, done)`, `L.load_state(path, done)`. Code runs in either bank mirror (`$00-$3F`/`$80-$BF`), so `on_exec`/`on_read`/`on_write` hook both; a hook on one mirror alone silently misses.
+- DeSmuME: `L.on_exec(addr, fn)` (needs `--debugger`: JIT skips exec hooks); own API `memory.readbyte/readdword(addr)`.
+- PCSX-Redux: `L.on_exec(addr, fn)` (needs `--debugger`: debugger + interpreter, slower), `L.save_state(path)`; RAM via `PCSX.getMemPtr()[addr & 0x1FFFFF]`, registers via `PCSX.getRegisters()`.
+- plus the emulator's own API (`emu.read`, `emu.getState`, `emu.addMemoryCallback`; mGBA `emu:read8`, `emu:readRange`).
+
+**Probes** (`$SKILL/scripts/lua/probes/`, pass with `--script`; usage in each file's header):
+
+| Probe | Logs |
+|---|---|
+| `watch.lua` | each distinct PC that reads or writes `WATCH_LO..WATCH_HI` (all emulators) |
+| `ramdump.lua` | `ram_<frame>.bin` every `RAM_EVERY` frames, for `ramsearch.py` |
+| `ppudump.lua` | `L.dump_ppu` at `DUMP_AT` (default the last frame) or every `DUMP_EVERY` |
+| `snes_romreads.lua` | each distinct (PC, bank) reading ROM in a `FROM..TO` frame window: finds text, font and graphics readers |
+| `snes_dmalog.lua` | every DMA: caller PC, source, size, B-bus register, VRAM address. A ROM source means raw tiles; a WRAM source means decompressed first |
+
+**RAM search:** `ramsearch.py ram_000600.bin dec ram_000900.bin =27 ram_000900.bin` narrows addresses the way a cheat search does (`same changed inc dec +N -N =N`). Confirm a hit by poking it from Lua and watching the screen. Use it for warps, god mode and flags.
 
 **Runtime leftover-Japanese scan:** hook the game's string-draw routine, log the pointer and bytes each time it runs, then decode the log with the project table offline and list strings that still hold Japanese codes, with frame numbers.
 
@@ -71,6 +97,8 @@ Pair it with `--mash` and a long `--frames` to sweep menus and dialogue cheaply.
 - Savestate create/load only works inside an exec memory callback; the driver queues them.
 - Runs at ~150 fps headless, so 900 frames take ~6 s.
 - Parallel runs need separate `--out` dirs.
+- A state from another Mesen version (header bytes 3–6, e.g. the user's 2.2.1 vs a 2.1.1 in `tools/`) loads black. emu.py re-stamps a copy with the local version and warns; if that still fails, run the user's Mesen with `--emu`.
+- `--sav` copies to `<exe dir>/Saves/<rom name>.srm` for the run and puts back whatever was there. A file it displaced is also copied to `<out>/_saves_backup.srm`, in case the run is killed before it restores.
 
 **mGBA (GBA):**
 - A Qt window opens, which is unavoidable.
@@ -79,10 +107,13 @@ Pair it with `--mash` and a long `--frames` to sweep menus and dialogue cheaply.
 - Load savestates via `-t`; loading from Lua wedges the game.
 - `os.exit(n)` returns n. The previous instance must fully exit before the next starts (emu.py waits for it).
 - Use fixed-width frame names: `f0*` globs missed frames ≥10000.
+- Keep the ROM out of the system temp dir: mGBA can open a modal "Temporary file loaded" box there and the run hangs to timeout (emu.py warns).
+- `--sav` passes `-C savegamePath=<out>` with a copy named `<rom name>.sav`; the `.sav` beside the ROM is left alone.
+- A watchpoint that fires during the script's own `emu:readRange` or screenshot deadlocks mGBA; `L.dump_*` and `L.shot` lift the `L.on_read`/`on_write` watchpoints meanwhile. Raw `emu:setRangeWatchpoint` calls get no such protection.
 
 **DeSmuME 0.9.13 (NDS):**
 - Needs the 64-bit `lua51.dll` beside the exe (`setup.md`). There is no Lua CLI flag: emu.py turns on `[Scripting] AutoLoad=1` and points `[PathSettings] Lua` and `StateSlots` at `--out` in `desmume.ini`, so DeSmuME runs `<out>/<rom name>.lua` when the ROM loads. The ini is restored after the run.
-- A window opens; `BackgroundPause=0` keeps it running unfocused. `emu.speedmode("maximum")`: 600 frames take ~10 s.
+- A window opens; `BackgroundPause=0` keeps it running unfocused. `emu.speedmode("maximum")` alone stays at 60 fps: emu.py also sets `[FrameLimit] FrameLimit=0` and passes `--jit-enable` (not with `--debugger`, which exec hooks need). 3000 frames take ~11 s (52 s throttled). `--frameskip` gains nothing.
 - Screenshots are both screens stacked (256×384). On-screen messages ("Loaded from 9 slot") land in the shots for ~2 s.
 - Savestates are slot files only: emu.py copies `--state-in` to slot 9 and moves slot 8 to `--state-out`. Loading must happen at a frame boundary (the driver does it on the first frame); the first shot after a load is grey.
 - Only one instance at a time (shared ini). `os.exit(n)` returns n.
@@ -90,8 +121,10 @@ Pair it with `--mash` and a long `--frames` to sweep menus and dialogue cheaply.
 
 **PCSX-Redux (PS1):**
 - `pcsx-redux.exe -portable -no-ui -run -fastboot -loadiso x.cue -dofile run.lua`. Without a window, `PCSX.quit(n)` returns n. Download: `setup.md`.
-- Runs at real speed (~60 fps; no unthrottle setting), so 3600 frames take about a minute. Size `--frames` and `--timeout` to match.
+- Speed is paced by the SPU: the driver sets `PCSX.settings.spu.Mute = true` and `spu.Speed = 8`, so 2,100 frames take ~6 s instead of ~40 s.
+- On timeout emu.py kills the whole process tree: the `pcsx-redux.exe` launcher leaves `pcsx-redux.main` running otherwise, and the orphan blocks the next run.
 - BIOS: `--bios` or env `PSX_BIOS`, a dump of the user's console BIOS (SCPH-5500 or similar for Japanese games). Without one, the bundled OpenBIOS is used, which is fine for a smoke test, but use the real BIOS when checking a scene.
 - Screenshots: the resolution changes with the game mode (320×240, 640×480); while the display is off, the shot is 0×0 (stored as one black pixel). `sheet.py` handles mixed sizes.
 - Savestates are uncompressed (~21 MB). **Take them on a quiet screen** (title, field, menu). A state taken during boot or an FMV loaded but then hung on black after the next input.
-- Settings and memory cards live beside the exe (`-portable`), so saves persist between runs (a title menu may open on LOAD GAME).
+- Settings and memory cards live beside the exe (`-portable`), so saves persist between runs (a title menu may open on LOAD GAME). `--sav card.mcd` passes a fresh copy as `-memcard1` instead.
+- Breakpoint callbacks must return `false` or the emulator pauses; `L.on_exec`/`on_read`/`on_write` do this for you.

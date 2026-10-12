@@ -1,26 +1,31 @@
 """Headless emulator runs for translation QA: boot a ROM, play a route, screenshot, exit with a real code.
 
     python emu.py ROM --out DIR [--route FILE | --route-str "900 -;4 start;300 -"] [--frames N]
-                  [--shot-every N] [--shots 120,600] [--state-in S] [--state-out S] [--mash N] [--mash-key KEY]
-                  [--script hooks.lua] [--emu EXE] [--bios BIN] [--debugger] [--timeout SEC] [--sheet] [--smoke]
+                  [--shot-every N] [--shots 120,600] [--state-in S] [--state-out S] [--state-every N]
+                  [--sav FILE] [--mash N] [--mash-key KEY] [--script hooks.lua].. [--var NAME=LUA]..
+                  [--emu EXE] [--bios BIN] [--debugger] [--timeout SEC] [--sheet] [--smoke]
 
 System from the ROM extension:
   .sfc/.smc          -> Mesen2 (--testRunner, no window)
   .gba               -> mGBA (Qt window opens; unavoidable)
-  .nds               -> DeSmuME (window opens; Lua via lua51.dll beside the exe; desmume.ini restored after)
-  .cue/.bin/.iso/.chd -> PCSX-Redux (-no-ui; runs at real speed, ~60 fps; --bios or env PSX_BIOS, else OpenBIOS)
+  .nds               -> DeSmuME (window opens; Lua via lua51.dll beside the exe; desmume.ini restored after;
+                        unthrottled + JIT, --debugger keeps the interpreter for exec hooks)
+  .cue/.bin/.iso/.chd -> PCSX-Redux (-no-ui; SPU muted, 8x speed; --bios or env PSX_BIOS, else OpenBIOS)
 Route: one step per line, "FRAMES BUTTONS" with BUTTONS "-" (none) or "a+start+up"; "#" starts a comment.
 NDS adds "t128,96" (touch the bottom screen at x,y). PS1 buttons: cross circle square triangle l1 r1 l2 r2 ...
 The run stops after --frames frames, or when the route ends. Writes DIR/f000120.png..., DIR/final.png, DIR/log.txt.
 --smoke fails (exit 3) when final.png is a single flat colour: the black-screen boot check.
---script appends your Lua after the driver; use L.on_frame(fn(n)), L.log(s), L.shot(name), L.on_exec(...)
-and the emulator's own API for hooks such as logging the game's string-draw routine.
+--sav copies a battery save (.srm/.sav/.dsv) or PS1 memory card (.mcd) into the run fresh each time; the original
+is never written. --state-every N writes DIR/s<frame>.<ext> every N frames (not NDS).
+--script (repeatable) appends Lua after the driver; --var NAME=LUA sets a global first (--var WATCH_LO=0x7E1000).
+Lua API: L.on_frame(fn(n)), L.log(s), L.shot(name), L.on_exec(..), L.on_read/L.on_write(lo, hi, fn), L.pc(),
+L.dump_ppu(prefix), L.dump_ram(path), plus the emulator's own API. Ready-made probes: scripts/lua/probes/.
 
 Exit codes: 0 ok, 2 Lua error (message printed), 3 smoke failed, 124 timeout, other = emulator failure.
 Emulator lookup: --emu, then env MESEN / MGBA / DESMUME / PCSX_REDUX, then tools/**/<exe> under the current repo
 and its sibling repos.
 """
-import argparse, configparser, glob, json, os, shutil, struct, subprocess, sys, time
+import argparse, configparser, glob, json, os, shutil, struct, subprocess, sys, tempfile, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -79,9 +84,30 @@ def mesen_portable(exe):
         print(f"warning: {path} lacks AllowIoOsAccess=true; screenshots will fail", file=sys.stderr)
 
 
-def desmume_ini(exe, out):
+def mesen_state(exe, state, out):
+    """Mesen loads a state black when its header version ("MSS" + u32 at byte 3) differs from its own, e.g. one
+    from the user's newer Mesen. Return the state, or a copy in out/ stamped with this exe's version."""
+    d = open(state, "rb").read()
+    exe_bytes = open(exe, "rb").read()
+    i = exe_bytes.rfind(struct.pack("<I", 0xFEEF04BD))  # VS_FIXEDFILEINFO: FileVersion
+    if d[:3] != b"MSS" or i < 0:
+        return state
+    ms, ls = struct.unpack("<II", exe_bytes[i + 8:i + 16])
+    ver = struct.pack("<I", (ms >> 16) << 16 | (ms & 0xFFFF) << 8 | ls >> 16)
+    if d[3:7] == ver:
+        return state
+    print(f"warning: {os.path.basename(state)} is from Mesen {d[5]}.{d[4]}.{d[3]}, this one is "
+          f"{ver[2]}.{ver[1]}.{ver[0]}: loading a re-stamped copy; if it still loads black, pass that Mesen "
+          "with --emu", file=sys.stderr)
+    fixed = os.path.join(out, "_state_in.mss")
+    open(fixed, "wb").write(d[:3] + ver + d[7:])
+    return fixed
+
+
+def desmume_ini(exe, out, battery):
     """DeSmuME has no Lua CLI flag: with [Scripting] AutoLoad=1 it runs <[PathSettings] Lua>/<rom name>.lua when the
-    ROM loads. Point Lua and StateSlots at the run dir, keep emulating when unfocused. Returns the old ini bytes."""
+    ROM loads. Point Lua and StateSlots (and Battery for --sav) at the run dir, keep emulating when unfocused, and
+    run unthrottled (Lua speedmode alone stays at 60 fps). Returns the ini path and its old bytes."""
     if not os.path.exists(os.path.join(os.path.dirname(exe), "lua51.dll")):
         sys.exit("lua51.dll must sit beside the DeSmuME exe: LuaBinaries lua-5.1.5_Win64_dll17_lib.zip, "
                  "rename lua5.1.dll to lua51.dll (references/setup.md)")
@@ -91,14 +117,22 @@ def desmume_ini(exe, out):
     c.optionxform = str
     if old:
         c.read_string(old.decode("utf-16"))
-    for sec, key, val in [("Scripting", "AutoLoad", "1"), ("PathSettings", "Lua", out),
-                          ("PathSettings", "StateSlots", out), ("Main", "BackgroundPause", "0")]:
+    sets = [("Scripting", "AutoLoad", "1"), ("PathSettings", "Lua", out), ("PathSettings", "StateSlots", out),
+            ("Main", "BackgroundPause", "0"), ("FrameLimit", "FrameLimit", "0")]
+    for sec, key, val in sets + ([("PathSettings", "Battery", out)] if battery else []):
         if not c.has_section(sec):
             c.add_section(sec)
         c.set(sec, key, val)
     with open(path, "w", encoding="utf-16") as f:
         c.write(f, space_around_delimiters=False)
     return path, old
+
+
+def kill_tree(p):
+    """A timeout kills only the child; PCSX-Redux's launcher leaves pcsx-redux.main running."""
+    if os.name == "nt":
+        subprocess.run(["taskkill", "/T", "/F", "/PID", str(p.pid)], capture_output=True)
+    p.kill()
 
 
 def to_png(path):
@@ -134,11 +168,15 @@ def run(a):
         sys.exit(f"unsupported ROM type {ext}")
     if not (a.route or a.route_str or a.frames):
         sys.exit("give --route, --route-str or --frames")
+    if a.state_every and system == "nds":
+        sys.exit("--state-every: DeSmuME saves numbered slots only; use --state-out per route instead")
     exe = find_emu(system, a.emu)
     out = os.path.abspath(a.out)
     rom = os.path.abspath(a.rom)
     stem = os.path.splitext(os.path.basename(rom))[0]
     os.makedirs(out, exist_ok=True)
+    if a.state_out:
+        os.makedirs(os.path.dirname(os.path.abspath(a.state_out)), exist_ok=True)
     for old in glob.glob(os.path.join(out, "f[0-9]*.*")) + [os.path.join(out, n) for n in ("final.png", "lua_error.txt")]:
         if os.path.exists(old):
             os.remove(old)
@@ -147,15 +185,21 @@ def run(a):
         route = os.path.join(out, "route.txt")
         with open(route, "w") as f:
             f.write("\n".join(s.strip() for s in a.route_str.split(";")) + "\n")
+    shots = [int(x) for x in a.shots.split(",")] if a.shots else None
+    end = a.frames or (route and sum(n for n, _ in read_route(route)))
+    if shots and end and max(shots) > end:
+        print(f"warning: --shots past the end of the run (frame {end}): {[s for s in shots if s > end]}",
+              file=sys.stderr)
     err = os.path.join(out, "lua_error.txt")
-    g = {"OUT": out + "/", "ERRFILE": err, "FRAMES": a.frames, "SHOT_EVERY": a.shot_every,
-         "SHOTS": [int(x) for x in a.shots.split(",")] if a.shots else None, "MASH": a.mash,
-         "MASH_KEY": a.mash_key or MASH_KEY.get(system, "a")}
+    g = {"OUT": out + "/", "ERRFILE": err, "FRAMES": a.frames, "SHOT_EVERY": a.shot_every, "SHOTS": shots,
+         "MASH": a.mash, "MASH_KEY": a.mash_key or MASH_KEY.get(system, "a"), "STATE_EVERY": a.state_every}
     if system == "psx":  # LuaJIT inside PCSX-Redux: pass the route inline rather than relying on io
         g["ROUTE_STEPS"] = route and read_route(route)
     else:
         g["ROUTE"] = route
-    if system in ("snes", "psx"):
+    if system == "snes" and a.state_in:
+        g["STATE_IN"] = mesen_state(exe, os.path.abspath(a.state_in), out)
+    if system == "psx":
         g["STATE_IN"] = a.state_in and os.path.abspath(a.state_in)
     if system == "nds":  # DeSmuME saves/loads numbered slots only: <out>/<rom name>.ds<N>
         if a.state_in:
@@ -166,46 +210,69 @@ def run(a):
     else:
         g["STATE_OUT"] = a.state_out and os.path.abspath(a.state_out)
     head = "\n".join(f"{k} = {lua_value(v)}" for k, v in g.items() if v is not None)
+    head += "".join(f"\n{kv.split('=', 1)[0].strip()} = {kv.split('=', 1)[1]}" for kv in a.var or [])
     parts = [head, open(os.path.join(HERE, "lua", LIB[system]), encoding="utf-8").read()]
-    if a.script:
-        parts.append(open(a.script, encoding="utf-8").read())
+    for s in a.script or []:
+        parts.append(open(s, encoding="utf-8").read())
     lua = os.path.join(out, f"{stem}.lua" if system == "nds" else "_run.lua")
     with open(lua, "w", encoding="utf-8") as f:
         f.write("\n".join(parts) + "\n")
 
-    restore = None
+    restore = []  # (path, old bytes or None): files outside --out that this run changes
     cwd = None
+    sav = None
+    if a.sav:  # fresh copy per run: the game writes to the copy, never to the user's file
+        dest = {"snes": os.path.join(os.path.dirname(exe), "Saves", stem + ".srm"),
+                "gba": os.path.join(out, stem + ".sav"), "nds": os.path.join(out, stem + ".dsv"),
+                "psx": os.path.join(out, "memcard1.mcd")}[system]
+        if system == "snes":  # Mesen (portable) reads <exe dir>/Saves/<rom name>.srm; put back what was there
+            os.makedirs(os.path.dirname(dest), exist_ok=True)
+            restore.append((dest, open(dest, "rb").read() if os.path.exists(dest) else None))
+            if restore[-1][1] is not None:  # on-disk copy survives even if this run is killed before restoring
+                shutil.copy(dest, os.path.join(out, "_saves_backup.srm"))
+        shutil.copy(a.sav, dest)
+        sav = dest
     if system == "snes":
         mesen_portable(exe)
         cmd = [exe, "--testRunner", f"--timeout={a.timeout}", rom, lua]
     elif system == "gba":
+        if os.path.normcase(rom).startswith(os.path.normcase(tempfile.gettempdir())):
+            print("warning: mGBA can open a modal 'Temporary file loaded' box for ROMs under the temp dir, and the "
+                  "run hangs; copy the ROM elsewhere", file=sys.stderr)
         cmd = [exe, "-C", "fpsTarget=3000", "-C", "audioSync=0", "-C", "videoSync=0", "-C", "volume=0",
                "--script", lua]
+        if sav:
+            cmd += ["-C", f"savegamePath={out}"]
         if a.state_in:
             cmd += ["-t", os.path.abspath(a.state_in)]  # mGBA: loading a state from Lua wedges the game
         cmd.append(rom)
     elif system == "nds":
-        restore = desmume_ini(exe, out)
-        cmd, cwd = [exe, "--disable-sound", rom], os.path.dirname(exe)
+        restore.append(desmume_ini(exe, out, bool(sav)))
+        jit = [] if a.debugger else ["--jit-enable"]  # ~1.5x; exec hooks (L.on_exec) need the interpreter
+        cmd, cwd = [exe, "--disable-sound", *jit, rom], os.path.dirname(exe)
     else:
         bios = a.bios or os.environ.get("PSX_BIOS")
         cmd = [exe, "-portable", "-noupdate", "-no-ui", "-run", "-fastboot", "-loadiso", rom, "-dofile", lua]
         cmd += ["-debugger", "-interpreter"] if a.debugger else ["-no-debugger", "-dynarec"]
         if bios:
             cmd += ["-bios", os.path.abspath(bios)]
-        cwd = os.path.dirname(exe)  # -portable keeps settings and memory cards beside the exe
+        if sav:
+            cmd += ["-memcard1", sav]
+        cwd = os.path.dirname(exe)  # -portable keeps settings and (without --sav) memory cards beside the exe
     t0 = time.time()
     stdout = ""
+    p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8",
+                         errors="replace", cwd=cwd)  # stderr=DEVNULL made mGBA runs ~4x slower
     try:
-        p = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace",
-                           timeout=a.timeout + 30, cwd=cwd)
-        rc, stdout = p.returncode, p.stdout
-    except subprocess.TimeoutExpired:  # subprocess.run kills and reaps the child, so the next run can start
+        stdout, rc = p.communicate(timeout=a.timeout + 30)[0], p.returncode
+    except subprocess.TimeoutExpired:  # kill the whole tree and reap it, so the next run can start
+        kill_tree(p)
+        p.communicate()
         rc = 124
     finally:
         if restore:
             time.sleep(0.5)
-            path, old = restore
+        for path, old in restore:
             if old is None:
                 os.remove(path)
             else:
@@ -250,12 +317,16 @@ if __name__ == "__main__":
     ap.add_argument("--shots")
     ap.add_argument("--state-in")
     ap.add_argument("--state-out")
+    ap.add_argument("--state-every", type=int, default=0, help="save DIR/s<frame>.<ext> every N frames (not NDS)")
+    ap.add_argument("--sav", "--memcard", help="battery save or PS1 memory card; a fresh copy is used each run")
     ap.add_argument("--mash", type=int, default=0, help="press --mash-key for 6 frames every N frames once the route ends")
     ap.add_argument("--mash-key", help="default a (cross on PS1)")
-    ap.add_argument("--script")
+    ap.add_argument("--script", action="append", help="Lua appended after the driver (repeatable)")
+    ap.add_argument("--var", action="append", help="NAME=LUA global set before the scripts (repeatable)")
     ap.add_argument("--emu")
     ap.add_argument("--bios", help="PS1 BIOS image (else env PSX_BIOS, else PCSX-Redux's OpenBIOS)")
-    ap.add_argument("--debugger", action="store_true", help="PS1: debugger + interpreter, needed for L.on_exec")
+    ap.add_argument("--debugger", action="store_true",
+                    help="PS1/NDS: debugger/interpreter (no JIT), needed for L.on_exec and PS1 L.on_read/on_write")
     ap.add_argument("--timeout", type=int, default=300)
     ap.add_argument("--sheet", action="store_true")
     ap.add_argument("--smoke", action="store_true")

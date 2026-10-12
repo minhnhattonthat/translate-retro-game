@@ -13,6 +13,7 @@ Skill: translate-retro-game (<SKILL_DIR>/SKILL.md). Read it before ROM, text or 
 - Text: `script/` (<format>). Tables: `tbl/`. Glossary + rulings: `glossary.md`. RE notes index: `docs/re/README.md`.
 
 ## Rulings
+- Edit source files (.py .lua .asm .tbl .json) only with the file-edit tool; scripts here read and analyse, never `.replace()` and write back.
 - Honorifics / name order: <...>. Credits: <...>. Romanization: <...>. Abbreviations: <...>.
 - <project-specific gotchas: buffer limits, duplicate text sites, cold-boot needs, emulator file locks>
 

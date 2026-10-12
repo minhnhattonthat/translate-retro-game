@@ -1,6 +1,6 @@
 """Thingy-style table codec with control codes, hex escapes and multi-byte keys.
 
-Table lines: `XX=あ`, `XXYY=漢`, control codes `F0={end}`, `F1={wait:1}` (1 argument byte). Unknown bytes decode
+Table lines: `XX=あ`, `XXYY=漢`, `00=\\s` (space), control codes `F0={end}`, `F1={wait:1}` (1 argument byte). Unknown bytes decode
 as `[XX]` and encode back, so decode -> encode is byte-exact: the basis of the extraction roundtrip test.
 
     from tbl import Table
@@ -22,8 +22,9 @@ class Table:
             if not line or line.startswith("#"):
                 continue
             key, sep, val = line.partition("=")
+            val = " " if val == r"\s" else val  # `00=\s` = space; editors and strip() eat a literal trailing space
             if not sep or not val:
-                raise ValueError(f"table line {n}: bad entry {line!r}")
+                raise ValueError(f"table line {n}: bad entry {line!r} (write a space value as {key}=\\s)")
             code = bytes.fromhex(key)
             m = CTRL.match(val)
             if m:
@@ -101,4 +102,6 @@ if __name__ == "__main__":
     text, used = t.decode(data)
     assert text == "あ[8A]漢{wait:05}A{end}" and used == len(data), text
     assert t.encode(text) == data
+    s = Table(["00=\\s", "20=A"])
+    assert s.decode(b"\x20\x00\x20", length=3)[0] == "A A" and s.encode("A A") == b"\x20\x00\x20"
     print("selftest ok")

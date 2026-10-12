@@ -7,7 +7,7 @@ It is a playbook plus tested tools, distilled from eight finished fan translatio
 ## What's inside
 
 - **A phased workflow**, each phase with a checkable "done when": recon → identity build (byte-identical repack) → extract (roundtrip-tested) → marker build → batch translation with subagents → insert and lint → emulator QA → release.
-- **Headless emulator QA** (`emu.py`): boots a ROM, plays a scripted route of button presses (and touch on NDS), takes screenshots, makes contact sheets, saves and loads states, and exits with a real code (0 ok, 2 Lua error, 3 black-screen smoke failure, 124 timeout).
+- **Headless emulator QA** (`emu.py`): boots a ROM, plays a scripted route of button presses (and touch on NDS), takes screenshots, makes contact sheets, saves and loads states, boots with a copy of your save or memory card, runs Lua probes (memory watch, RAM/VRAM dumps, DMA logs), and exits with a real code (0 ok, 2 Lua error, 3 black-screen smoke failure, 124 timeout).
 
   | Platform | Emulator |
   |---|---|
@@ -16,8 +16,9 @@ It is a playbook plus tested tools, distilled from eight finished fan translatio
   | NDS | DeSmuME + Lua 5.1 |
   | PS1 | PCSX-Redux |
 
-- **ROM tools** (Python, stdlib only): leftover-Japanese scanner (`jp_left.py`, including a GBA pointer-reachability mode), BPS patch maker with re-apply verification (`bps.py`), out-of-range write checker (`romdiff.py`), table codec with control codes (`tbl.py`), contact sheets (`sheet.py`).
-- **Guardrails**: a git pre-commit hook that runs the repo's check and refuses ROM files (any agent), plus, for Claude Code, a Bash hook that blocks the shell edits that kept corrupting source files (`sed -i`, heredocs with escapes, `tests | tail && git commit`).
+- **ROM tools** (Python, stdlib only): leftover-Japanese scanner (`jp_left.py`, with pointer-reachability modes), BPS patch maker with re-apply verification (`bps.py`), out-of-range write checker (`romdiff.py`), table codec with control codes (`tbl.py`), contact sheets (`sheet.py`).
+- **Reverse-engineering and graphics tools**: relative search, 65816 and (with capstone) ARM/THUMB/MIPS disassembly with xrefs, cheat-style RAM search, and a workflow for text drawn as graphics: render tiles and BG maps from VRAM dumps, find their source in the ROM, re-import edited PNGs at fixed palette indices.
+- **Guardrails**: a git pre-commit hook that runs the repo's check and refuses ROM files (any agent), plus, for Claude Code, a Bash/PowerShell hook that blocks the shell edits that kept corrupting source files (`sed -i`, heredocs with escapes, `python -c` replace scripts, `Set-Content` on source, `tests | tail && git commit`).
 - **Translation templates**: translator and reviewer briefs for subagents, a glossary template, and the policy questions to settle with you once per project (honorifics, name order, romanization, credits).
 - **Platform notes** for SNES, GBA, NDS and PS1: mapping, pointers, compression, fonts, disc rebuilds, release formats.
 

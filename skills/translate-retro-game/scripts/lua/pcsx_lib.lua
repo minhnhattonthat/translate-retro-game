@@ -4,8 +4,12 @@
 -- pixels); emu.py converts them to PNG. Files go through Support.File (PCSX-Redux's own file API).
 L = { frame = 0 }
 
+-- QA runs: no audio, and the SPU-paced emulation speed raised to 8x real time
+pcall(function() PCSX.settings.spu.Mute = true; PCSX.settings.spu.Speed = 8 end)
+
 local logf = Support.File.open(OUT .. "log.txt", "TRUNCATE")
-function L.log(s) logf:write(tostring(s) .. "\n") end
+local quitting = false
+function L.log(s) if not quitting then logf:write(tostring(s) .. "\n") end end  -- hooks can fire after quit
 function L.shot(name)
   local s = PCSX.GPU.takeScreenShot()
   local f = Support.File.open(OUT .. (name:gsub("%.png$", ".psx")), "TRUNCATE")
@@ -13,7 +17,6 @@ function L.shot(name)
                       tonumber(s.bpp)))
   f:write(s.data); f:close()
 end
-local quitting = false
 function L.finish(code) if not quitting then quitting = true; logf:close(); PCSX.quit(code or 0) end end
 function L.fail(msg)
   local f = Support.File.open(ERRFILE, "TRUNCATE"); f:write(tostring(msg) .. "\n"); f:close()
@@ -21,12 +24,26 @@ function L.fail(msg)
 end
 -- Errors inside event listeners only reach the log: wrap every callback so errors exit 2.
 function L.safe(fn) return function(...) local ok, e = pcall(fn, ...); if not ok then L.fail(e) end end end
--- Exec breakpoints need the debugger and the interpreter: emu.py --debugger. Keep the returned object alive.
+-- Breakpoints need the debugger and the interpreter: emu.py --debugger. Keep the returned objects alive. The
+-- invoker returns false so the emulator keeps running (true, or nil, pauses it).
 local bps = {}
-function L.on_exec(addr, fn) bps[#bps + 1] = PCSX.addBreakpoint(addr, "Exec", 4, "emu.py", L.safe(fn)) end
+local function bp(addr, kind, width, fn)
+  local cb = L.safe(fn)
+  bps[#bps + 1] = PCSX.addBreakpoint(addr, kind, width, "emu.py", function(...) cb(...); return false end)
+end
+function L.on_exec(addr, fn) bp(addr, "Exec", 4, fn) end
+function L.on_read(lo, hi, fn) bp(lo, "Read", hi - lo + 1, fn) end   -- fn(addr, width, cause)
+function L.on_write(lo, hi, fn) bp(lo, "Write", hi - lo + 1, fn) end
+function L.pc() return PCSX.getRegisters().pc end
 function L.save_state(path)
   local f = Support.File.open(path, "TRUNCATE"); f:writeMoveSlice(PCSX.createSaveState()); f:close()
 end
+local function outpath(p) return (p:match("^%a:") or p:match("^/")) and p or OUT .. p end
+function L.write_file(path, data) local f = Support.File.open(outpath(path), "TRUNCATE"); f:write(data); f:close() end
+-- <prefix>.vram.bin: GPU VRAM, 1 MB = 1024x512 16-bit pixels; CLUTs (palettes) live inside it. PS1 has no OAM.
+-- A relative prefix lands in --out.
+function L.dump_ppu(prefix) L.write_file((prefix or "ppu") .. ".vram.bin", PCSX.GPU.getVRAM()) end
+function L.dump_ram(path) L.write_file(path, require("ffi").string(PCSX.getMemPtr(), 0x200000)) end -- 2 MB main RAM
 
 local B = PCSX.CONSTS.PAD.BUTTON
 local KEYS = { cross = B.CROSS, circle = B.CIRCLE, square = B.SQUARE, triangle = B.TRIANGLE, l1 = B.L1, r1 = B.R1,
@@ -73,6 +90,7 @@ VSYNC = PCSX.Events.createEventListener("GPU::Vsync", L.safe(function()
   elseif (MASH or 0) > 0 and n % MASH < 6 then apply(parse(MASH_KEY or "cross"))
   else apply(NONE) end
   if ((SHOT_EVERY or 0) > 0 and n % SHOT_EVERY == 0) or shotset[n] then L.shot(string.format("f%06d.png", n)) end
+  if (STATE_EVERY or 0) > 0 and n % STATE_EVERY == 0 then L.save_state(string.format("%ss%06d.sstate", OUT, n)) end
   for _, fn in ipairs(frameFns) do fn(n) end
   if FRAMES and n >= FRAMES or (not FRAMES and L.route_done()) then
     L.shot("final.png")

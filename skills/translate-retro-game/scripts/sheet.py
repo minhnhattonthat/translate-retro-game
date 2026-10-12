@@ -1,12 +1,19 @@
 """Contact sheets from emulator screenshots (stdlib only: no PIL needed).
 
-    python sheet.py DIR [--cols 4] [--div 2] [--max 16] [--changed 0.02] [--out DIR/sheet.png]
+    python sheet.py SRC.. [--cols 4] [--div 2] [--max 16] [--changed 0.02] [--out DIR/sheet.png]
+                    [--from 1200 --to 2400] [--crop x,y,w,h] [--zoom 3] [--rotate 90] [--compare DIR2]
 
-Takes DIR/f*.png in name order. --changed keeps a frame only when more than that fraction of its pixels differ
-from the last kept frame, so a static screen held for 600 frames costs one tile, not ten. Read the sheet instead
-of the individual PNGs: one image Read instead of sixteen.
+SRC is a directory (takes its f<frame>.png in name order), PNG files, or a quoted glob ("work/qa/f00[3-4]*.png").
+--changed keeps a frame only when more than that fraction of its pixels differ from the last kept frame, so a
+static screen held for 600 frames costs one tile, not ten. Read the sheet instead of the individual PNGs: one
+image Read instead of sixteen.
+--from/--to   keep frames whose number (from the file name) is in [from, to].
+--crop        cut each frame to the text box, x,y,w,h in source pixels, before --rotate and --zoom.
+--zoom N      nearest-neighbour upscale (with --div 1) to read small or thin glyphs; check fonts this way.
+--rotate 90   clockwise, for games played sideways (vertical handheld text); 180/270 also work.
+--compare D2  pair each frame with the same-named file in D2 (before | after, side by side).
 """
-import argparse, glob, os, struct, zlib
+import argparse, glob, os, re, struct, zlib
 
 
 def read_png(path):
@@ -98,28 +105,113 @@ def sheet(imgs, cols, out, div=1):
     return out
 
 
-def make(d, cols=4, div=2, limit=16, changed=0.0, out=None):
-    paths = sorted(glob.glob(os.path.join(d, "f[0-9]*.png")))
+def crop(img, x, y, w, h):
+    iw, ih, bpp, rows = img
+    w, h = min(w, iw - x), min(h, ih - y)
+    return w, h, bpp, [r[x * bpp:(x + w) * bpp] for r in rows[y:y + h]]
+
+
+def rotate(img, deg):
+    """Clockwise in 90-degree steps."""
+    for _ in range(deg // 90 % 4):
+        w, h, bpp, rows = img
+        img = h, w, bpp, [b"".join(rows[h - 1 - nx][y * bpp:(y + 1) * bpp] for nx in range(h)) for y in range(w)]
+    return img
+
+
+def zoom(img, n):
+    if n == 1:
+        return img
+    w, h, bpp, rows = img
+    out = []
+    for r in rows:
+        out += [b"".join(r[x * bpp:(x + 1) * bpp] * n for x in range(w))] * n
+    return w * n, h * n, bpp, out
+
+
+def side(a, b):
+    """a | b on one RGB canvas, for before/after pairs."""
+    def rgb(img):
+        return [r if img[2] == 3 else b"".join(r[i:i + 3] for i in range(0, len(r), 4)) for r in img[3]]
+    ra, rb, h = rgb(a), rgb(b), max(a[1], b[1])
+    gap = b"\x40\x00\x40" * 4
+    return a[0] + 4 + b[0], h, 3, [(ra[y] if y < a[1] else bytes(a[0] * 3)) + gap
+                                   + (rb[y] if y < b[1] else bytes(b[0] * 3)) for y in range(h)]
+
+
+def frame_no(path):
+    m = re.search(r"(\d+)\D*$", os.path.basename(path))  # f000300.png -> 300
+    return int(m[1]) if m else None
+
+
+def collect(srcs, lo=None, hi=None):
+    paths = []
+    for s in [srcs] if isinstance(srcs, str) else srcs:
+        paths += sorted(glob.glob(os.path.join(s, "f[0-9]*.png") if os.path.isdir(s) else s))
+    if lo is not None or hi is not None:
+        paths = [p for p in paths if frame_no(p) is not None
+                 and (lo is None or frame_no(p) >= lo) and (hi is None or frame_no(p) <= hi)]
+    return paths
+
+
+def make(d, cols=4, div=2, limit=16, changed=0.0, out=None, lo=None, hi=None, box=None, scale=1, turn=0,
+         compare=None):
+    """d: a directory, or a list of directories / PNG paths / globs."""
+    paths = collect(d, lo, hi)
     if not paths:
-        raise SystemExit(f"no f<frame>.png in {d}")
+        raise SystemExit(f"no f<frame>.png matched {d}")
     kept = select(paths, changed) if changed else [(p, read_png(p)) for p in paths]
     if len(kept) > limit:  # spread the tiles over the whole run rather than taking the first ones
         step = len(kept) / limit
         kept = [kept[int(i * step)] for i in range(limit)]
-    out = out or os.path.join(d, "sheet.png")
-    sheet([img for _, img in kept], cols, out, div)
+
+    def view(img):
+        return zoom(rotate(crop(img, *box) if box else img, turn), scale)
+    imgs = []
+    for p, img in kept:
+        img = view(img)
+        if compare:
+            q = os.path.join(compare, os.path.basename(p))
+            other = view(read_png(q)) if os.path.exists(q) else (img[0], img[1], 3, [bytes(img[0] * 3)] * img[1])
+            img = side(img, other)
+        imgs.append(img)
+    first = d if isinstance(d, str) else d[0]
+    out = out or os.path.join(first if os.path.isdir(first) else os.path.dirname(paths[0]) or ".", "sheet.png")
+    sheet(imgs, cols, out, div)
     print(out)
     print("tiles (row-major):", " ".join(os.path.basename(p)[:-4] for p, _ in kept))
     return out
 
 
+def _selftest():
+    img = (2, 2, 3, [bytes([1] * 3 + [2] * 3), bytes([3] * 3 + [4] * 3)])  # pixels 1 2 / 3 4
+    assert crop(img, 1, 0, 5, 5) == (1, 2, 3, [bytes([2] * 3), bytes([4] * 3)])
+    assert rotate(img, 90)[3] == [bytes([3] * 3 + [1] * 3), bytes([4] * 3 + [2] * 3)]  # 3 1 / 4 2
+    assert rotate(img, 360) == img and zoom(img, 1) == img
+    z = zoom(img, 2)
+    assert z[:2] == (4, 4) and z[3][1] == bytes([1] * 6 + [2] * 6)
+    s = side(img, (1, 1, 4, [bytes([9, 9, 9, 255])]))
+    assert s[:2] == (7, 2) and s[3][0].endswith(bytes([9] * 3)) and s[3][1].endswith(bytes(3))
+    assert frame_no("x/f000300.png") == 300 and frame_no("final.png") is None
+    print("selftest ok")
+
+
 if __name__ == "__main__":
+    import sys
+    if sys.argv[1:] == ["--selftest"]:
+        sys.exit(_selftest())
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("dir")
+    ap.add_argument("src", nargs="+", help="directory, PNG files or a quoted glob")
     ap.add_argument("--cols", type=int, default=4)
     ap.add_argument("--div", type=int, default=2, help="downscale factor (1 = full size, for reading small text)")
     ap.add_argument("--max", type=int, default=16)
     ap.add_argument("--changed", type=float, default=0.0)
     ap.add_argument("--out")
+    ap.add_argument("--from", dest="lo", type=int)
+    ap.add_argument("--to", dest="hi", type=int)
+    ap.add_argument("--crop", type=lambda s: tuple(int(v) for v in s.split(",")), help="x,y,w,h")
+    ap.add_argument("--zoom", type=int, default=1)
+    ap.add_argument("--rotate", type=int, default=0, choices=(0, 90, 180, 270))
+    ap.add_argument("--compare", metavar="DIR2")
     a = ap.parse_args()
-    make(a.dir, a.cols, a.div, a.max, a.changed, a.out)
+    make(a.src, a.cols, a.div, a.max, a.changed, a.out, a.lo, a.hi, a.crop, a.zoom, a.rotate, a.compare)

@@ -80,6 +80,7 @@ The merge refuses bad batches. The build/lint stays the hard gate. Lines that st
 
 ## Fitting text
 
+- Limits come from the width gate (`pipeline.md` §Width gate), measured in this game before the first dispatch.
 - Measure what the player sees:
   - pixel width from the font's width table for VWF (`data/windows.json` per window: px, lines, cells);
   - bytes for fixed-width fonts.

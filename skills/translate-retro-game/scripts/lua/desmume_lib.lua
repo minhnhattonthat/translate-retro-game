@@ -19,6 +19,39 @@ end
 function L.safe(fn) return function(...) local ok, e = pcall(fn, ...); if not ok then L.fail(e) end end end
 -- memory.registerexec(addr, fn) / registerwrite(addr, size, fn), memory.readbyte(addr) etc. are DeSmuME's own.
 function L.on_exec(addr, fn) memory.registerexec(addr, L.safe(fn)) end
+-- CPU accesses only (DMA does not fire). fn(addr, size); read the value with memory.readbyte etc.
+function L.on_read(lo, hi, fn) memory.registerread(lo, hi - lo + 1, L.safe(fn)) end
+function L.on_write(lo, hi, fn) memory.registerwrite(lo, hi - lo + 1, L.safe(fn)) end
+function L.pc() return memory.getregister("arm9.r15") end
+local function outpath(p) return (p:match("^%a:") or p:match("^/")) and p or OUT .. p end
+local function dump(f, a, n)  -- n bytes from address a, little-endian dwords
+  local buf = {}
+  for p = a, a + n - 1, 4 do
+    local v = memory.readdword(p)
+    buf[#buf + 1] = string.char(v % 256, math.floor(v / 256) % 256, math.floor(v / 65536) % 256,
+                                math.floor(v / 16777216) % 256)
+    if #buf == 4096 then f:write(table.concat(buf)); buf = {} end
+  end
+  f:write(table.concat(buf))
+end
+local function dump_to(path, regions)
+  local f = assert(io.open(outpath(path), "wb"))
+  for _, r in ipairs(regions) do dump(f, r[1], r[2]) end
+  f:close()
+end
+-- <prefix>.vram.bin = engine-mapped VRAM, 1 MB: BG-A 0x06000000 (512 KB) at file 0, BG-B 0x06200000 (128 KB) at
+-- 0x80000, OBJ-A 0x06400000 (256 KB) at 0xA0000, OBJ-B 0x06600000 (128 KB) at 0xE0000. .pal.bin 2 KB (A: BG, OBJ;
+-- B: BG, OBJ), .oam.bin 2 KB (A, B), .io.bin DISPCNT/BGxCNT/scroll for A (0x04000000) then B (0x04001000), 0x60
+-- each. Extended palettes are not included. A relative prefix lands in --out.
+function L.dump_ppu(prefix)
+  prefix = prefix or "ppu"
+  dump_to(prefix .. ".vram.bin", { { 0x06000000, 0x80000 }, { 0x06200000, 0x20000 }, { 0x06400000, 0x40000 },
+                                   { 0x06600000, 0x20000 } })
+  dump_to(prefix .. ".pal.bin", { { 0x05000000, 0x800 } })
+  dump_to(prefix .. ".oam.bin", { { 0x07000000, 0x800 } })
+  dump_to(prefix .. ".io.bin", { { 0x04000000, 0x60 }, { 0x04001000, 0x60 } })
+end
+function L.dump_ram(path) dump_to(path, { { 0x02000000, 0x400000 } }) end -- main RAM, 4 MB
 
 local KEYS = { a = "A", b = "B", x = "X", y = "Y", l = "L", r = "R", start = "start", select = "select",
                up = "up", down = "down", left = "left", right = "right", lid = "lid" }

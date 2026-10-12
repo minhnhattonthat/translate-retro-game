@@ -10,6 +10,7 @@
   - Recompressed blocks that no longer fit go to the expanded area, still never crossing a bank.
 - **Assemblers:**
   - asar (most patches), xkas-plus, or WLA-DX for disassembly-based builds.
+  - asar: pass `--fix-checksum=off` (the release step owns the checksum), force operand size (`lda.w`) where it matters, and parenthesise expressions explicitly; asar's precedence surprised past patches.
   - With a disassembler that emits WLA source, emit the header as data, never `.SNESHEADER`/`.BASE`, so the identity build stays exact.
   - Point Makefile tool variables (`WLA ?=`) at the in-repo `tools/` copy, not at a path from someone else's machine.
 - **Fonts:**
