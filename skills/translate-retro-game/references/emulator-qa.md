@@ -42,14 +42,14 @@ python -X utf8 $SKILL/scripts/emu.py ROM --out DIR [--route FILE | --route-str "
 
 Scripts (`--script`, repeatable) are appended after the driver; `--var NAME=LUA` sets a global before them (`--var WATCH_LO=0x7E1000`, strings as `--var "MODE='read'"`). Available everywhere:
 - `L.on_frame(fn(n))`, `L.log(s)`, `L.shot("name.png")`, `L.frame`;
-- `L.on_read(lo, hi, fn)`, `L.on_write(lo, hi, fn)`: `fn(addr, ...)`, the rest is per emulator (Mesen/mGBA: value). mGBA needs 0.11+ (dev build); PS1 needs `--debugger`; DeSmuME sees CPU accesses only, not DMA;
+- `L.on_read(lo, hi, fn)`, `L.on_write(lo, hi, fn)`: `fn(addr, ...)`, the rest is per emulator (Mesen/mGBA: value). mGBA needs 0.11+ (dev build); PS1 needs `--debugger`; DeSmuME passes (addr, size) and fires for DMA as well as CPU accesses;
 - `L.pc()`: the current program counter, for "who touched this" logs;
 - `L.dump_ppu(prefix)`: `<prefix>.vram.bin`, `.pal.bin`, `.oam.bin` (+ `.ppu.txt` PPU registers on SNES, `.io.bin` LCD registers on GBA/NDS; PS1 writes only `.vram.bin`, palettes live in it). A relative prefix lands in `--out`. File layouts: the comment above `L.dump_ppu` in each `lua/*_lib.lua`;
 - `L.dump_ram(path)`: SNES WRAM 128 KB, GBA EWRAM+IWRAM, NDS 4 MB / PS1 2 MB main RAM.
 
 Per emulator:
 - Mesen: `L.on_exec(lo, hi, fn)`, `L.rom_off(cpu_addr)` (LoROM; for HiROM use `a & 0x3FFFFF`), `L.save_state(path, done)`, `L.load_state(path, done)`. SNES code runs in either bank mirror (`$00-$3F`/`$80-$BF`), so `on_exec`/`on_read`/`on_write` hook both; a hook on one mirror alone silently misses. A read/write range inside `$7E0000-$7FFFFF` is hooked as work RAM, so it also catches low WRAM accessed as `$00:0000-1FFF`.
-- DeSmuME: `L.on_exec(addr, fn)` (needs `--debugger`: JIT skips exec hooks); own API `memory.readbyte/readdword(addr)`.
+- DeSmuME: `L.on_exec(addr, fn)` (fires under JIT on the QA fork; stock DeSmuME needs `--debugger`); QA fork only: `L.save_state(path)`, `L.load_state(path)` from `L.on_frame`; own API `memory.readbyte/readdword(addr)`.
 - PCSX-Redux: `L.on_exec(addr, fn)` (needs `--debugger`: debugger + interpreter, slower), `L.save_state(path)`; RAM via `PCSX.getMemPtr()[addr & 0x1FFFFF]`, registers via `PCSX.getRegisters()`.
 - plus the emulator's own API (`emu.read`, `emu.getState`, `emu.addMemoryCallback`; mGBA `emu:read8`, `emu:readRange`).
 
@@ -112,12 +112,11 @@ Pair it with `--mash` and a long `--frames` to sweep menus and dialogue cheaply.
 - `--sav` passes `-C savegamePath=<out>` with a copy named `<rom name>.sav`; the `.sav` beside the ROM is left alone.
 - A watchpoint that fires during the script's own `emu:readRange` or screenshot deadlocks mGBA; `L.dump_*` and `L.shot` lift the `L.on_read`/`on_write` watchpoints meanwhile. Raw `emu:setRangeWatchpoint` calls get no such protection.
 
-**DeSmuME 0.9.13 (NDS):**
-- Needs the 64-bit `lua51.dll` beside the exe (`setup.md`). There is no Lua CLI flag: emu.py turns on `[Scripting] AutoLoad=1` and points `[PathSettings] Lua` and `StateSlots` at `--out` in `desmume.ini`, so DeSmuME runs `<out>/<rom name>.lua` when the ROM loads. The ini is restored after the run.
-- A window opens; `BackgroundPause=0` keeps it running unfocused. `emu.speedmode("maximum")` alone stays at 60 fps: emu.py also sets `[FrameLimit] FrameLimit=0` and passes `--jit-enable` (not with `--debugger`, which exec hooks need). 3000 frames take ~11 s (52 s throttled). `--frameskip` gains nothing.
-- Screenshots are both screens stacked (256×384). On-screen messages ("Loaded from 9 slot") land in the shots for ~2 s.
-- Savestates are slot files only: emu.py copies `--state-in` to slot 9 and moves slot 8 to `--state-out`. Loading must happen at a frame boundary (the driver does it on the first frame); the first shot after a load is grey.
-- Only one instance at a time (shared ini). `os.exit(n)` returns n.
+**DeSmuME (NDS):**
+- **QA fork** (preferred; emu.py detects it by its `--headless` flag): emu.py passes `--ini <out>/desmume.ini --headless --disable-limiter --jit-enable --lua <out>/_run.lua`. No window, nothing shared between runs (parallel runs work), PNG shots via `gui.savepng`, savestates by path (`--state-in/--state-out` take any `.dst`, `--state-every` works), exec hooks under JIT. 900 frames take ~4 s.
+- **Stock 0.9.13+** (fallback): needs the 64-bit `lua51.dll` beside the exe (`setup.md`). There is no Lua CLI flag: emu.py turns on `[Scripting] AutoLoad=1` and points `[PathSettings] Lua` and `StateSlots` at `--out` in the shared `desmume.ini` (restored after the run), so DeSmuME runs `<out>/<rom name>.lua` when the ROM loads. A window opens; `BackgroundPause=0` keeps it running unfocused, `[FrameLimit] FrameLimit=0` + `--jit-enable` unthrottle it. Savestates are slot files (emu.py copies `--state-in` to slot 9, moves slot 8 to `--state-out`); shots are `.gd`, converted to PNG. One instance at a time.
+- Both: screenshots are both screens stacked (256×384). States load at a frame boundary (the driver does it on the first frame). With JIT, some games stay grey after a state load until input or a redraw; the interpreter (`--debugger`) renders at once. On-screen messages ("Loaded from 9 slot") land in stock shots for ~2 s. `os.exit(n)` returns n.
+- Never run DeSmuME from the system temp dir: it switches to a per-user settings path there and crashes at start.
 - Fallback without Lua: a `.dsm` input movie (`--play-movie`); every frame line needs the mic field `|0|RLDUTSBAYXWEG xxx yyy t 000|` or parsing drifts.
 
 **PCSX-Redux (PS1):**

@@ -9,8 +9,9 @@ System from the ROM extension:
   .sfc/.smc          -> Mesen (MesenCE or Mesen2; --testRunner, no window)
   .gba               -> Mesen when <Mesen dir>/Firmware/gba_bios.bin exists (no window; exec hooks; Lua states),
                         else mGBA (HLE BIOS; Qt window opens). --emu picks either.
-  .nds               -> DeSmuME (window opens; Lua via lua51.dll beside the exe; desmume.ini restored after;
-                        unthrottled + JIT, --debugger keeps the interpreter for exec hooks)
+  .nds               -> DeSmuME. QA fork (has --headless): no window, own ini per run, PNG shots, path states,
+                        exec hooks under JIT. Stock: window opens, Lua via lua51.dll beside the exe, shared
+                        desmume.ini edited then restored, slot states, --debugger needed for exec hooks
   .cue/.bin/.iso/.chd -> PCSX-Redux (-no-ui; SPU muted, 8x speed; --bios or env PSX_BIOS, else OpenBIOS)
 Route: one step per line, "FRAMES BUTTONS" with BUTTONS "-" (none) or "a+start+up"; "#" starts a comment.
 NDS adds "t128,96" (touch the bottom screen at x,y). PS1 buttons: cross circle square triangle l1 r1 l2 r2 ...
@@ -168,8 +169,6 @@ def run(a):
         sys.exit(f"unsupported ROM type {ext}")
     if not (a.route or a.route_str or a.frames):
         sys.exit("give --route, --route-str or --frames")
-    if a.state_every and system == "nds":
-        sys.exit("--state-every: DeSmuME saves numbered slots only; use --state-out per route instead")
     exe = a.emu
     if system == "gba" and not exe:  # Mesen first (no window, exec hooks, Lua savestates) if it has the BIOS
         m = find_emu("snes", required=False)
@@ -179,6 +178,10 @@ def run(a):
     if mesen and system == "gba" and not os.path.exists(os.path.join(os.path.dirname(exe), "Firmware", "gba_bios.bin")):
         sys.exit("Mesen has no built-in GBA BIOS (games boot black): put the user's console dump at "
                  f"{os.path.join(os.path.dirname(exe), 'Firmware', 'gba_bios.bin')}, or pass --emu mGBA.exe")
+    # the QA fork of DeSmuME (references/setup.md) adds --headless/--ini/--lua, path savestates, PNG shots, JIT exec hooks
+    dsfork = system == "nds" and b"--headless" in open(exe, "rb").read()
+    if a.state_every and system == "nds" and not dsfork:
+        sys.exit("--state-every: stock DeSmuME saves numbered slots only; use the QA fork or --state-out per route")
     out = os.path.abspath(a.out)
     rom = os.path.abspath(a.rom)
     stem = os.path.splitext(os.path.basename(rom))[0]
@@ -208,9 +211,9 @@ def run(a):
         g["ROUTE"] = route
     if mesen and a.state_in:
         g["STATE_IN"] = mesen_state(exe, os.path.abspath(a.state_in), out)
-    if system == "psx":
+    if system == "psx" or dsfork:
         g["STATE_IN"] = a.state_in and os.path.abspath(a.state_in)
-    if system == "nds":  # DeSmuME saves/loads numbered slots only: <out>/<rom name>.ds<N>
+    if system == "nds" and not dsfork:  # stock DeSmuME saves/loads numbered slots only: <out>/<rom name>.ds<N>
         if a.state_in:
             shutil.copy(a.state_in, os.path.join(out, f"{stem}.ds{DS_SLOT_IN}"))
             g["STATE_IN_SLOT"] = DS_SLOT_IN
@@ -223,7 +226,7 @@ def run(a):
     parts = [head, open(os.path.join(HERE, "lua", LIB["snes" if mesen else system]), encoding="utf-8").read()]
     for s in a.script or []:  # wrapped so a top-level error (e.g. a probe's assert) exits 2 instead of vanishing
         parts.append("L.safe(function()\n" + open(s, encoding="utf-8").read() + "\nend)()")
-    lua = os.path.join(out, f"{stem}.lua" if system == "nds" else "_run.lua")
+    lua = os.path.join(out, f"{stem}.lua" if system == "nds" and not dsfork else "_run.lua")
     with open(lua, "w", encoding="utf-8") as f:
         f.write("\n".join(parts) + "\n")
 
@@ -255,9 +258,16 @@ def run(a):
         if a.state_in:
             cmd += ["-t", os.path.abspath(a.state_in)]  # mGBA: loading a state from Lua wedges the game
         cmd.append(rom)
+    elif dsfork:  # own ini per run: nothing shared to restore, parallel runs are fine
+        ini = os.path.join(out, "desmume.ini")
+        with open(ini, "w") as f:
+            f.write(f"[PathSettings]\nBattery={out}\n" if sav else "")
+        jit = [] if a.debugger else ["--jit-enable"]
+        cmd = [exe, "--ini", ini, "--headless", "--disable-limiter", "--disable-sound", *jit, "--lua", lua, rom]
+        cwd = os.path.dirname(exe)
     elif system == "nds":
         restore.append(desmume_ini(exe, out, bool(sav)))
-        jit = [] if a.debugger else ["--jit-enable"]  # ~1.5x; exec hooks (L.on_exec) need the interpreter
+        jit = [] if a.debugger else ["--jit-enable"]  # ~1.5x; stock exec hooks (L.on_exec) need the interpreter
         cmd, cwd = [exe, "--disable-sound", *jit, rom], os.path.dirname(exe)
     else:
         bios = a.bios or os.environ.get("PSX_BIOS")
@@ -295,7 +305,7 @@ def run(a):
         print("\n".join(stdout.strip().splitlines()[-10:]))
     for raw in glob.glob(os.path.join(out, "*.gd")) + glob.glob(os.path.join(out, "*.psx")):
         to_png(raw)
-    if system == "nds" and a.state_out:
+    if system == "nds" and not dsfork and a.state_out:
         slot = os.path.join(out, f"{stem}.ds{DS_SLOT_OUT}")
         if os.path.exists(slot):
             shutil.move(slot, os.path.abspath(a.state_out))
@@ -335,7 +345,7 @@ if __name__ == "__main__":
     ap.add_argument("--emu")
     ap.add_argument("--bios", help="PS1 BIOS image (else env PSX_BIOS, else PCSX-Redux's OpenBIOS)")
     ap.add_argument("--debugger", action="store_true",
-                    help="PS1/NDS: debugger/interpreter (no JIT), needed for L.on_exec and PS1 L.on_read/on_write")
+                    help="PS1/NDS: interpreter, no JIT. Needed for PS1 hooks and stock-DeSmuME L.on_exec (not the QA fork)")
     ap.add_argument("--timeout", type=int, default=300)
     ap.add_argument("--sheet", action="store_true")
     ap.add_argument("--smoke", action="store_true")

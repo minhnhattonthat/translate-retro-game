@@ -6,5 +6,5 @@
 - **Fonts (NFTR):**
   - If the renderer ignores advance widths, English can use digraph glyphs: two 6 px letters per 12 px cell, placed on unused JIS level-2 codes.
   - New codes must sit inside the owning CMAP block.
-- **Emulator:** `emu.py game.nds` drives DeSmuME through Lua (needs `lua51.dll` beside the exe; see `setup.md` and `emulator-qa.md` §DeSmuME). Routes take `t128,96` for touch. melonDS with synthetic key presses needs window focus; avoid it for scripted QA, though users often playtest in it.
+- **Emulator:** `emu.py game.nds` drives DeSmuME through Lua: the QA fork headless (no window, parallel runs, exec hooks under JIT), or stock DeSmuME with `lua51.dll` beside the exe; see `setup.md` and `emulator-qa.md` §DeSmuME. Routes take `t128,96` for touch. melonDS with synthetic key presses needs window focus; avoid it for scripted QA, though users often playtest in it.
 - **Release:** xdelta.

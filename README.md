@@ -13,7 +13,7 @@ It is a playbook plus tested tools, distilled from eight finished fan translatio
   |---|---|
   | SNES | MesenCE (or Mesen2) |
   | GBA | MesenCE with your GBA BIOS dump, else mGBA |
-  | NDS | DeSmuME + Lua 5.1 |
+  | NDS | [DeSmuME QA fork](https://github.com/minhnhattonthat/desmume/releases) (headless), or stock DeSmuME + Lua 5.1 |
   | PS1 | PCSX-Redux |
 
 - **ROM tools** (Python, stdlib only): leftover-Japanese scanner (`jp_left.py`, with pointer-reachability modes), BPS patch maker with re-apply verification (`bps.py`), out-of-range write checker (`romdiff.py`), table codec with control codes (`tbl.py`), contact sheets (`sheet.py`).

@@ -1,12 +1,15 @@
 -- DeSmuME (NDS) driver library, Lua 5.1 (lua51.dll beside the exe). emu.py prepends globals: OUT, ERRFILE, ROUTE,
--- FRAMES, SHOT_EVERY, SHOTS, STATE_IN_SLOT, STATE_OUT_SLOT, MASH, MASH_KEY, and loads this file as
--- <out>/<rom name>.lua through DeSmuME's "auto-load Lua with ROM" setting. A user script (--script) is appended
--- after the driver and may use L.*. Screenshots are written as .gd (both screens, 256x384); emu.py converts them.
+-- FRAMES, SHOT_EVERY, SHOTS, MASH, MASH_KEY, STATE_EVERY and either STATE_IN/STATE_OUT (paths; QA fork) or
+-- STATE_IN_SLOT/STATE_OUT_SLOT (stock). The fork runs this file via --lua; stock DeSmuME loads it as
+-- <out>/<rom name>.lua through its "auto-load Lua with ROM" setting. A user script (--script) is appended after the
+-- driver and may use L.*. Shots are both screens stacked (256x384): PNG on the fork, .gd on stock (emu.py converts).
 L = { frame = 0 }
+local fork = gui.savepng ~= nil
 
 local logf = assert(io.open(OUT .. "log.txt", "w"))
 function L.log(s) logf:write(tostring(s) .. "\n"); logf:flush() end
 function L.shot(name)
+  if fork then gui.savepng(OUT .. name); return end
   local f = assert(io.open(OUT .. (name:gsub("%.png$", ".gd")), "wb"))
   f:write(gui.gdscreenshot()); f:close()
 end
@@ -18,8 +21,9 @@ end
 -- DeSmuME shows Lua errors in its script window and keeps emulating: wrap every callback so errors exit 2.
 function L.safe(fn) return function(...) local ok, e = pcall(fn, ...); if not ok then L.fail(e) end end end
 -- memory.registerexec(addr, fn) / registerwrite(addr, size, fn), memory.readbyte(addr) etc. are DeSmuME's own.
+-- Exec hooks fire under JIT on the QA fork; stock DeSmuME needs --debugger (interpreter) for them.
 function L.on_exec(addr, fn) memory.registerexec(addr, L.safe(fn)) end
--- CPU accesses only (DMA does not fire). fn(addr, size); read the value with memory.readbyte etc.
+-- CPU and DMA accesses both fire. fn(addr, size); read the value with memory.readbyte etc.
 function L.on_read(lo, hi, fn) memory.registerread(lo, hi - lo + 1, L.safe(fn)) end
 function L.on_write(lo, hi, fn) memory.registerwrite(lo, hi - lo + 1, L.safe(fn)) end
 function L.pc() return memory.getregister("arm9.r15") end
@@ -52,6 +56,10 @@ function L.dump_ppu(prefix)
   dump_to(prefix .. ".io.bin", { { 0x04000000, 0x60 }, { 0x04001000, 0x60 } })
 end
 function L.dump_ram(path) dump_to(path, { { 0x02000000, 0x400000 } }) end -- main RAM, 4 MB
+if fork then  -- savestates by file path, at a frame boundary (call from L.on_frame)
+  function L.save_state(path) savestate.save(outpath(path)) end
+  function L.load_state(path) savestate.load(outpath(path)) end
+end
 
 local KEYS = { a = "A", b = "B", x = "X", y = "Y", l = "L", r = "R", start = "start", select = "select",
                up = "up", down = "down", left = "left", right = "right", lid = "lid" }
@@ -102,9 +110,9 @@ L.safe(function()
   if ROUTE then L.load_route(ROUTE) end
 end)()
 
-local loaded = not STATE_IN_SLOT
+local loaded = not (STATE_IN_SLOT or STATE_IN)
 emu.registerafter(L.safe(function()
-  if not loaded then loaded = true; savestate.load(STATE_IN_SLOT); return end  -- at a frame boundary, not at script start
+  if not loaded then loaded = true; savestate.load(STATE_IN or STATE_IN_SLOT); return end  -- at a frame boundary
   L.frame = L.frame + 1
   local n = L.frame
   local q = queue[1]
@@ -115,13 +123,14 @@ emu.registerafter(L.safe(function()
   elseif (MASH or 0) > 0 and n % MASH < 6 then cur = parse(MASH_KEY or "a")
   else cur = NONE end
   if ((SHOT_EVERY or 0) > 0 and n % SHOT_EVERY == 0) or shotset[n] then L.shot(string.format("f%06d.png", n)) end
+  if (STATE_EVERY or 0) > 0 and n % STATE_EVERY == 0 then savestate.save(string.format("%ss%06d.dst", OUT, n)) end
   for _, fn in ipairs(frameFns) do fn(n) end
   local stop = FRAMES and n >= FRAMES or (not FRAMES and L.route_done())
   if stop and not ending then
     ending = true
     L.shot("final.png")
     L.log("final frame " .. n)
-    if STATE_OUT_SLOT then savestate.save(STATE_OUT_SLOT) end
+    if STATE_OUT or STATE_OUT_SLOT then savestate.save(STATE_OUT or STATE_OUT_SLOT) end
     L.finish(0)
   end
 end))
