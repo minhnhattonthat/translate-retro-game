@@ -2,7 +2,7 @@
 debugger API (`--debugger PORT`), takes screenshots and exits with a real code. Windows only (window hiding, key events).
 
     python psp.py GAME.iso --out DIR [--route FILE | --route-str "600 -;3 cross;120 -"] [--frames N] [--shots 300,900]
-                  [--shot-every N] [--smoke] [--state F] [--save-state F] [--fast] [--show] [--clean-saves]
+                  [--shot-every N] [--smoke] [--sound] [--state F] [--save-state F] [--fast] [--show] [--clean-saves]
                   [--emu PPSSPPWindows64.exe] [--emu-arg ARG].. [--timeout SEC]
 (emu.py calls this for PSP images and maps --state-in/--state-out to --state/--save-state.)
 
@@ -124,11 +124,28 @@ def find_emu(arg):
         if c and os.path.exists(c): return os.path.abspath(c)
     sys.exit('PPSSPPWindows64.exe not found: pass --emu or set PPSSPP (setup.md says where to get it)')
 
+def set_sound(ms_dir, on):
+    """QA runs are silent: [Sound] Enable in the memstick's ppsspp.ini (PPSSPP rewrites the file on exit, so set it every run)."""
+    ini = os.path.join(ms_dir, 'PSP', 'SYSTEM', 'ppsspp.ini'); os.makedirs(os.path.dirname(ini), exist_ok=True)
+    lines = open(ini, encoding='utf-8').read().splitlines() if os.path.exists(ini) else []
+    want = f'Enable = {on}'; sec = None; out = []; done = False
+    for ln in lines:
+        if ln.startswith('['):
+            if sec == '[Sound]' and not done: out.append(want); done = True
+            sec = ln.strip()
+        elif sec == '[Sound]' and ln.split('=')[0].strip() == 'Enable': ln = want; done = True
+        out.append(ln)
+    if not done:
+        if sec == '[Sound]': out.append(want)
+        else: out += ['[Sound]', want]
+    open(ini, 'w', encoding='utf-8', newline='\n').write('\n'.join(out) + '\n')
+
 class Run:
-    def __init__(self, emu, iso, out, show=False, state=None, memstick=None, extra=()):
+    def __init__(self, emu, iso, out, show=False, state=None, memstick=None, extra=(), sound=False):
         self.out = out; self.emu = emu; os.makedirs(out, exist_ok=True)
         self.port = free_port()
         ms = memstick or os.path.join(os.path.dirname(emu), 'memstick')
+        set_sound(ms, sound)
         cmd = [emu, f'--memstick={ms}', f'--debugger={self.port}', f'--log={os.path.abspath(out)}/ppsspp.log']
         if state: cmd.append(f'--state={state}')
         cmd += list(extra)
@@ -214,6 +231,7 @@ def main(argv=None):
     ap.add_argument('--route'); ap.add_argument('--route-str'); ap.add_argument('--frames', type=int)
     ap.add_argument('--shots', default=''); ap.add_argument('--shot-every', type=int, default=0)
     ap.add_argument('--smoke', action='store_true'); ap.add_argument('--fast', action='store_true'); ap.add_argument('--show', action='store_true')
+    ap.add_argument('--sound', action='store_true', help='leave PPSSPP audio on (QA runs are muted by default)')
     ap.add_argument('--clean-saves', action='store_true', help='empty PSP/SAVEDATA on the memstick first (fresh-install run)')
     ap.add_argument('--save-state', help='write the PPSSPP save state (slot 1) to this file at the end of the route'); ap.add_argument('--emu'); ap.add_argument('--emu-arg', action='append', default=[], help='extra PPSSPP argument, e.g. -d for debug logging'); ap.add_argument('--state'); ap.add_argument('--timeout', type=int, default=600)
     a = ap.parse_args(argv)
@@ -227,7 +245,7 @@ def main(argv=None):
         if a.clean_saves:
             sd = os.path.join(os.path.dirname(emu), 'memstick', 'PSP', 'SAVEDATA')
             for d in glob.glob(sd + '/*'): shutil.rmtree(d, ignore_errors=True)
-        run = Run(emu, a.iso, a.out, a.show, a.state, extra=a.emu_arg)
+        run = Run(emu, a.iso, a.out, a.show, a.state, extra=a.emu_arg, sound=a.sound)
         base = run.frame(); log = open(os.path.join(a.out, 'log.txt'), 'w'); si = 0; nshots = 0; last_ev = -1
         edges = []; acc = 0
         for n, k in steps: edges.append((acc, acc + n, k)); acc += n

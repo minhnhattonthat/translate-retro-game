@@ -181,7 +181,7 @@ def run_psp(a):
                       ("--emu", a.emu)):
         if val:
             argv += [flag, str(val)]
-    for flag, on in (("--smoke", a.smoke), ("--fast", a.fast), ("--show", a.show), ("--clean-saves", a.clean_saves)):
+    for flag, on in (("--smoke", a.smoke), ("--sound", a.sound), ("--fast", a.fast), ("--show", a.show), ("--clean-saves", a.clean_saves)):
         if on:
             argv.append(flag)
     try:
@@ -385,6 +385,7 @@ if __name__ == "__main__":
     ap.add_argument("--sheet", action="store_true")
     ap.add_argument("--smoke", action="store_true")
     ap.add_argument("--fast", action="store_true", help="PSP: hold PPSSPP's fast-forward (needs the window focused)")
+    ap.add_argument("--sound", action="store_true", help="PSP: keep audio on (muted by default)")
     ap.add_argument("--show", action="store_true", help="PSP: leave the PPSSPP window visible")
     ap.add_argument("--clean-saves", action="store_true", help="PSP: empty the memstick SAVEDATA first")
     sys.exit(run(ap.parse_args()))
