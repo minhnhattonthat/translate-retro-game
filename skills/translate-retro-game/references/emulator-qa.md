@@ -1,6 +1,6 @@
 # Emulator QA reference
 
-`scripts/emu.py` boots a ROM headless, plays a scripted route, takes screenshots and exits with a real code. Use it so the user doesn't have to play the build first. It covers SNES (MesenCE/Mesen2), GBA (Mesen with a BIOS dump, else mGBA), NDS (DeSmuME) and PS1 (PCSX-Redux).
+`scripts/emu.py` boots a ROM headless, plays a scripted route, takes screenshots and exits with a real code. Use it so the user doesn't have to play the build first. It covers SNES (MesenCE/Mesen2), GBA (Mesen with a BIOS dump, else mGBA), NDS (DeSmuME), PS1 (PCSX-Redux) and PSP (PPSSPP).
 
 ## QA order (cheapest first)
 
@@ -128,3 +128,13 @@ Pair it with `--mash` and a long `--frames` to sweep menus and dialogue cheaply.
 - Savestates are uncompressed (~21 MB). **Take them on a quiet screen** (title, field, menu). A state taken during boot or an FMV loaded but then hung on black after the next input.
 - Settings and memory cards live beside the exe (`-portable`), so saves persist between runs (a title menu may open on LOAD GAME). `--sav card.mcd` passes a fresh copy as `-memcard1` instead.
 - Breakpoint callbacks must return `false` or the emulator pauses; `L.on_exec`/`on_read`/`on_write` do this for you.
+
+**PPSSPP (PSP; Windows):**
+- `emu.py game.iso` (an ISO containing `PSP_GAME`, or a `.cso`) hands over to `psp.py`: it starts `PPSSPPWindows64.exe --memstick=<exe dir>/memstick --debugger=<free port>`, waits for the game, and **hides the window** (`ShowWindow(SW_HIDE)`; the game keeps running and `--emu-arg=-d` adds debug logs to `<out>/ppsspp.log`).
+- Control is PPSSPP's WebSocket API (`ws://127.0.0.1:PORT/debugger`, stdlib client in `psp.py`): `cpu.status` (`us` = emulated microseconds, frame = `us / 16667`), `input.buttons.send {buttons: {cross: true, ...}}` (names: `cross circle square triangle start select up down left right ltrigger rtrigger`; `l`/`r` are rejected), `gpu.buffer.screenshot` (needs the CPU stepping: `cpu.stepping` then `cpu.resume`; returns a PNG data URI), `memory.read {address,size}` (base64; user RAM starts at 0x08800000), `hle.module.list`, `cpu.getAllRegs`, breakpoints, `game.reset`. There is **no savestate call**: `--save-state` sends F2 with real key events (needs the window shown for ~2 s; the driver hides it again), `--state-in` is PPSSPP's `--state=FILE`.
+- Screenshots are the full window render (1440×816 at the default 3x scale), PNG. A green "Debugger web server running" toast overlays the first seconds and "State saved/loaded" toasts appear for ~2 s: ignore them or start shots later.
+- Speed: real time by default (2,000 frames ≈ 35 s). `--fast` holds Tab (≈17x: 16,000 frames in 11 s) with real key events, so it grabs the keyboard focus while it runs. Loading a state at the scene under test skips the boot and menus (a run from a state starts in ~3 s).
+- Routes: same format as the other systems. Many Japanese games map OK to **circle**. A route that walks menus is fragile: after the first walk, save a state at the screen you test and start there.
+- Saves and settings live in `<exe dir>/memstick/`; a game that offers "create save data?" shows its prompt only while `PSP/SAVEDATA` is empty (`--clean-saves`). `memstick/PSP/SYSTEM/ppsspp.ini` can be edited between runs (the emulator rewrites it on exit).
+- Not found, so do not look: a Lua API, a headless build in the standard zip, a savestate/screenshot CLI flag, a way to keep running at speed without focus.
+

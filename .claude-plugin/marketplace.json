@@ -11,7 +11,7 @@
       "name": "translate-retro-game",
       "source": "./",
       "description": "Playbook and tested tools for fan-translating Japanese retro games (SNES, GBA, NDS, PS1) into English.",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "author": {
         "name": "minhnhattonthat"
       },

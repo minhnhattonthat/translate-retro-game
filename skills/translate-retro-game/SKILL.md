@@ -1,6 +1,6 @@
 ---
 name: translate-retro-game
-description: Playbook and tested tools for fan-translating Japanese retro games (SNES, GBA, NDS, PS1) into English. Covers tool setup, ROM recon, text extraction and insertion, fonts and VWF, text drawn as graphics, batch translation with parallel agents, headless emulator QA (Mesen2, mGBA, DeSmuME, PCSX-Redux), leftover-Japanese scans and BPS/xdelta releases. Use it for any work in a ROM-hacking or game-translation repo, including starting a new game, translating script batches, fixing overflowing, garbled or untranslated text, testing a build in an emulator and packaging a patch, even when the user doesn't name the skill.
+description: Playbook and tested tools for fan-translating Japanese retro games (SNES, GBA, NDS, PS1, PSP) into English. Covers tool setup, ROM recon, text extraction and insertion, fonts and VWF, text drawn as graphics, batch translation with parallel agents, headless emulator QA (Mesen2, mGBA, DeSmuME, PCSX-Redux, PPSSPP), leftover-Japanese scans and BPS/xdelta releases. Use it for any work in a ROM-hacking or game-translation repo, including starting a new game, translating script batches, fixing overflowing, garbled or untranslated text, testing a build in an emulator and packaging a patch, even when the user doesn't name the skill.
 ---
 
 # Translate a retro game
@@ -67,7 +67,7 @@ Each phase ends on a checkable condition. Do the phases in order. Skipping the i
 | 7 | **QA in the emulator** | smoke passes; routes through changed scenes give contact sheets you have looked at; every graphics-text row is English in a zoomed cold-boot shot | `references/emulator-qa.md`, `references/graphics.md` |
 | 8 | **Release** | `jp_left.py` on the release build reports no unintended Japanese; the patch is built, re-applied and verified; README has the base ROM hashes; zip holds patch + README | `references/pipeline.md` §Release |
 
-Platform notes are loaded only for the platform at hand: `references/platform-snes.md`, `platform-gba.md`, `platform-nds.md`, `platform-ps1.md`.
+Platform notes are loaded only for the platform at hand: `references/platform-snes.md`, `platform-gba.md`, `platform-nds.md`, `platform-ps1.md`, `platform-psp.md`.
 
 When the user reports an in-game bug, reproduce it with `emu.py` first, from their savestate if they gave one, and save the shot. Then fix it, re-run the same route, and compare. Then grep for every other copy of the same text or code, because games often store a string two or three times.
 
@@ -75,12 +75,13 @@ When the user reports an in-game bug, reproduce it with `emu.py` first, from the
 
 | Script | Use |
 |---|---|
-| `emu.py ROM --out DIR --route r.txt --shot-every 300 --smoke --sheet [--sav F] [--script x.lua]..` | Headless boot, scripted input, screenshots, contact sheet, saves, Lua hooks. Mesen .sfc, Mesen (with BIOS) or mGBA .gba, DeSmuME .nds, PCSX-Redux .cue. Exit 0 ok / 2 Lua error / 3 smoke fail / 124 timeout |
+| `emu.py ROM --out DIR --route r.txt --shot-every 300 --smoke --sheet [--sav F] [--script x.lua]..` | Headless boot, scripted input, screenshots, contact sheet, saves, Lua hooks. Mesen .sfc, Mesen (with BIOS) or mGBA .gba, DeSmuME .nds, PCSX-Redux .cue, PPSSPP PSP .iso (window hidden, states, no Lua). Exit 0 ok / 2 Lua error / 3 smoke fail / 124 timeout |
 | `lua/probes/*.lua` | `--script` probes: memory watch, RAM dump, PPU dump, SNES ROM-read and DMA logs |
 | `sheet.py DIR --changed 0.02 [--from N --to M] [--crop x,y,w,h] [--zoom N] [--compare DIR2]` | One contact-sheet PNG from many frames; read it instead of individual shots |
 | `jp_left.py BUILT --sjis\|--tbl jp.tbl [--slots F] [--known F] [--gba-ptrs] [--orig ORIG]` | Japanese runs still in the build; exit 1 if any. `--slots`/`--gba-ptrs` keep only text a pointer still reaches |
 | `relsearch.py`, `dis65816.py`, `disasm.py` (capstone), `ramsearch.py` | Recon: relative search, SNES / ARM / MIPS disassembly + xref, cheat-style RAM search |
 | `tiles.py render\|import\|map`, `vramfind.py` | Graphics text: render tiles and BG maps from dumps, re-import edited PNGs, find VRAM tiles in the ROM (`references/graphics.md`) |
+| `iso9660.py`, `cpk.py`, `gim.py`, `sfo.py`, `showgim.py`, `typeset.py`, `jpscan.py` | PSP / 3D-era image work: ISO list/extract/patch, CRI CPK read/rebuild, GIM texture decode/encode, PARAM.SFO, side-by-side image sheets, English text rendering (Pillow), Japanese run scan in binaries (`references/platform-psp.md`) |
 | `bps.py make ORIG BUILT OUT.bps` / `apply` / `snes-checksum` | Patch with built-in re-apply check; SNES header checksum |
 | `romdiff.py ORIG NEW RANGES..` | Fails on any byte changed outside allowed ranges |
 | `tbl.py` | Table codec with control codes, roundtrip-exact; import it in extract/insert code |

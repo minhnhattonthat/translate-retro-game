@@ -1,6 +1,6 @@
 # translate-retro-game
 
-An [agent skill](https://skills.sh) for fan-translating Japanese retro games into English: SNES, GBA, NDS and PS1. Works with any coding agent that reads `SKILL.md` skills: Claude Code, Codex, Cursor, GitHub Copilot, Gemini CLI, OpenCode and others.
+An [agent skill](https://skills.sh) for fan-translating Japanese retro games into English: SNES, GBA, NDS, PS1 and PSP. Works with any coding agent that reads `SKILL.md` skills: Claude Code, Codex, Cursor, GitHub Copilot, Gemini CLI, OpenCode and others.
 
 It is a playbook plus tested tools, distilled from eight finished fan translations. Its aim is a patch the player can test without acting as the agent's QA loop: the agent boots every build itself, screenshots the scenes it changed, and only hands over builds that pass.
 
@@ -15,12 +15,13 @@ It is a playbook plus tested tools, distilled from eight finished fan translatio
   | GBA | MesenCE with your GBA BIOS dump, else mGBA |
   | NDS | [DeSmuME QA fork](https://github.com/minhnhattonthat/desmume/releases) (headless), or stock DeSmuME + Lua 5.1 |
   | PS1 | PCSX-Redux |
+  | PSP | PPSSPP (window hidden, WebSocket debugger) |
 
 - **ROM tools** (Python, stdlib only): leftover-Japanese scanner (`jp_left.py`, with pointer-reachability modes), BPS patch maker with re-apply verification (`bps.py`), out-of-range write checker (`romdiff.py`), table codec with control codes (`tbl.py`), contact sheets (`sheet.py`).
 - **Reverse-engineering and graphics tools**: relative search, 65816 and (with capstone) ARM/THUMB/MIPS disassembly with xrefs, cheat-style RAM search, and a workflow for text drawn as graphics: render tiles and BG maps from VRAM dumps, find their source in the ROM, re-import edited PNGs at fixed palette indices.
 - **Guardrails**: a git pre-commit hook that runs the repo's check and refuses ROM files (any agent), plus, for Claude Code, a Bash/PowerShell hook that blocks the shell edits that kept corrupting source files (`sed -i`, heredocs with escapes, `python -c` replace scripts, `Set-Content` on source, `tests | tail && git commit`).
 - **Translation templates**: translator and reviewer briefs for subagents, a glossary template, and the policy questions to settle with you once per project (honorifics, name order, romanization, credits).
-- **Platform notes** for SNES, GBA, NDS and PS1: mapping, pointers, compression, fonts, disc rebuilds, release formats.
+- **Platform notes** for SNES, GBA, NDS, PS1 and PSP: mapping, pointers, compression, fonts, disc rebuilds, release formats.
 
 ## Install
 

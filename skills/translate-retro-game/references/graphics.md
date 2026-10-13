@@ -25,3 +25,12 @@ Tour the game with `emu.py` and list every screen whose Japanese did not change 
 - Recompress and write through the same block writer as text, so `romdiff.py` ranges and free-space checks cover graphics too.
 
 **Done when** each row in `docs/re/graphics.md` is English in a cold-boot shot you have looked at zoomed in, or is marked "kept Japanese" with the user's agreement.
+
+## When the text is a texture (PSP, 3D-era handhelds)
+
+There are no tiles or VRAM dumps to chase: images are stored whole (PSP: GIM) inside archives. Find them by unpacking the game, not by tracing the screen. Contact-sheet every unique image, redraw the Japanese ones at the same pixel size, and let the build write them back byte-for-byte compatible (`platform-psp.md`; `typeset.py`, `gim.py`, `showgim.py`). Rules that held:
+- Match the original's look: copy its colour (`typeset.dominant`), its width (condensed fonts + `xscale` for tall narrow lettering), its glow or outline. Read the layout file for the sprite's real size and anchor so text sits where the sprite is drawn.
+- Remove old text over artwork with `typeset.inpaint`, then draw; a flat clear leaves a hole.
+- Keep each redraw script in the repo (`tools/gen_gfx.py`-style, one section per screen, a dictionary of translations): rerunning it regenerates every PNG, so a wording change costs one command.
+- Check every replacement next to the original, then once in the emulator; row-wise bands (`bands()`/`segments()` helpers in the generator) find the original text rows to redraw at the same places.
+- Translations of text pictures are listed with the same glossary as any text; put per-line strings in a tsv beside the generator (`notes/subs.tsv`-style).

@@ -12,6 +12,8 @@ System from the ROM extension:
   .nds               -> DeSmuME. QA fork (has --headless): no window, own ini per run, PNG shots, path states,
                         exec hooks under JIT. Stock: window opens, Lua via lua51.dll beside the exe, shared
                         desmume.ini edited then restored, slot states, --debugger needed for exec hooks
+  .iso/.cso with /PSP_GAME -> PPSSPP via psp.py (window hidden, WebSocket debugger; Windows; --state-in/--state-out are
+                        PPSSPP .ppst states, extra flags: --clean-saves --fast --show, see psp.py --help)
   .cue/.bin/.iso/.chd -> PCSX-Redux (-no-ui; SPU muted, 8x speed; --bios or env PSX_BIOS, else OpenBIOS)
 Route: one step per line, "FRAMES BUTTONS" with BUTTONS "-" (none) or "a+start+up"; "#" starts a comment.
 NDS adds "t128,96" (touch the bottom screen at x,y). PS1 buttons: cross circle square triangle l1 r1 l2 r2 ...
@@ -24,7 +26,7 @@ Lua API: L.on_frame(fn(n)), L.log(s), L.shot(name), L.on_exec(..), L.on_read/L.o
 L.dump_ppu(prefix), L.dump_ram(path), plus the emulator's own API. Ready-made probes: scripts/lua/probes/.
 
 Exit codes: 0 ok, 2 Lua error (message printed), 3 smoke failed, 124 timeout, other = emulator failure.
-Emulator lookup: --emu, then env MESEN / MGBA / DESMUME / PCSX_REDUX, then tools/**/<exe> under the current repo
+Emulator lookup: --emu, then env MESEN / MGBA / DESMUME / PCSX_REDUX / PPSSPP, then tools/**/<exe> under the current repo
 and its sibling repos.
 """
 import argparse, configparser, glob, json, os, shutil, struct, subprocess, sys, tempfile, time
@@ -34,7 +36,7 @@ sys.path.insert(0, HERE)
 import sheet as sheetmod  # noqa: E402
 
 SYSTEMS = {".sfc": "snes", ".smc": "snes", ".gba": "gba", ".nds": "nds",
-           ".cue": "psx", ".bin": "psx", ".iso": "psx", ".chd": "psx"}
+           ".cue": "psx", ".bin": "psx", ".iso": "psx", ".chd": "psx", ".cso": "psp"}
 EXE = {"snes": ("MESEN", "Mesen.exe"), "gba": ("MGBA", "mGBA.exe"), "nds": ("DESMUME", "DeSmuME*.exe"),
        "psx": ("PCSX_REDUX", "pcsx-redux.exe")}
 LIB = {"snes": "mesen_lib.lua", "gba": "mgba_lib.lua", "nds": "desmume_lib.lua", "psx": "pcsx_lib.lua"}
@@ -162,8 +164,41 @@ def to_png(path):
     os.remove(path)
 
 
+def is_psp(path):
+    """A PSP UMD image: ISO9660 whose root directory names PSP_GAME (CSO is compressed: go by the extension)."""
+    if path.lower().endswith(".cso"):
+        return True
+    with open(path, "rb") as f:
+        f.seek(16 * 2048)
+        return b"PSP_GAME" in f.read(64 * 2048)
+
+
+def run_psp(a):
+    import psp
+    argv = [a.rom, "--out", a.out, "--timeout", str(a.timeout)]
+    for flag, val in (("--route", a.route), ("--route-str", a.route_str), ("--frames", a.frames), ("--shots", a.shots),
+                      ("--shot-every", a.shot_every or None), ("--state", a.state_in), ("--save-state", a.state_out),
+                      ("--emu", a.emu)):
+        if val:
+            argv += [flag, str(val)]
+    for flag, on in (("--smoke", a.smoke), ("--fast", a.fast), ("--show", a.show), ("--clean-saves", a.clean_saves)):
+        if on:
+            argv.append(flag)
+    try:
+        psp.main(argv)
+    except SystemExit as e:
+        code = e.code if isinstance(e.code, int) else 2
+    else:
+        code = 0
+    if a.sheet and code in (0, 3) and glob.glob(os.path.join(a.out, "f[0-9]*.png")):
+        sheetmod.make(a.out, changed=0.02)
+    return code
+
+
 def run(a):
     ext = os.path.splitext(a.rom)[1].lower()
+    if ext in (".iso", ".cso") and is_psp(a.rom):
+        return run_psp(a)
     system = SYSTEMS.get(ext)
     if not system:
         sys.exit(f"unsupported ROM type {ext}")
@@ -349,4 +384,7 @@ if __name__ == "__main__":
     ap.add_argument("--timeout", type=int, default=300)
     ap.add_argument("--sheet", action="store_true")
     ap.add_argument("--smoke", action="store_true")
+    ap.add_argument("--fast", action="store_true", help="PSP: hold PPSSPP's fast-forward (needs the window focused)")
+    ap.add_argument("--show", action="store_true", help="PSP: leave the PPSSPP window visible")
+    ap.add_argument("--clean-saves", action="store_true", help="PSP: empty the memstick SAVEDATA first")
     sys.exit(run(ap.parse_args()))
