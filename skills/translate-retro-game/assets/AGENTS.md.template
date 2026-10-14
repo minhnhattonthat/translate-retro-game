@@ -6,10 +6,11 @@ Skill: translate-retro-game (<SKILL_DIR>/SKILL.md). Read it before ROM, text or 
 - Build:    `<python -X utf8 build.py>`        -> build/<game>_en.<ext>
 - Check:    `<python -X utf8 tools/check.py>`  (tests + lint; the pre-commit hook runs this)
 - Smoke:    `python -X utf8 <SKILL_DIR>/scripts/emu.py build/<game>_en.<ext> --out work/qa/smoke --route tools/routes/boot.txt --smoke`
+- Warp:     `python -X utf8 <SKILL_DIR>/scripts/emu.py build/<game>_en.<ext> --out work/qa/warp --script tools/debug/warp.lua --var "SCENE='<name>'" --frames 900 --sheet` (scenes: `tools/debug/scenes.<ext>`; never ask the user to play to a scene)
 - Release:  `<python -X utf8 tools/release.py>` (patch + verify; never publish without the user)
 
 ## Paths
-- Original ROM: `rom/<file>` (gitignored; hash in README). Emulator: `tools/<emulator>/...` (gitignored). Savestates: `work/states/`.
+- Original ROM: `rom/<file>` (gitignored; hash in README). Emulator: this repo's own copy in `tools/<emulator>/` (release `<version>`, `<download URL>`; gitignored; settings in `tools/emu-config/`). Savestates: `work/states/`.
 - Text: `script/` (<format>). Tables: `tbl/`. Glossary + rulings: `glossary.md`. RE notes index: `docs/re/README.md`.
 
 ## Rulings

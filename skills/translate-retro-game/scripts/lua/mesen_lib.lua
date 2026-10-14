@@ -75,7 +75,7 @@ function L.dump_ppu(prefix)
   table.sort(keys)
   L.write_file(prefix .. ".ppu.txt", table.concat(keys, "\n") .. "\n")
 end
-function L.dump_ram(path)  -- SNES WRAM $7E0000-$7FFFFF; GBA EWRAM (256 KB) then IWRAM (32 KB), as mgba_lib
+function L.dump_ram(path)  -- SNES WRAM $7E0000-$7FFFFF; GBA EWRAM (256 KB) then IWRAM (32 KB)
   if gba then
     L.write_file(path, grab(emu.memType.gbaExtWorkRam, 0x40000) .. grab(emu.memType.gbaIntWorkRam, 0x8000))
   else

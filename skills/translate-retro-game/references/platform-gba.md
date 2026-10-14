@@ -9,5 +9,5 @@
 - **Older fan patches** sometimes left pointers aimed mid-line into old Japanese or at blank slots. `jp_left.py --gba-ptrs` (without `--orig`) finds them; fix them in a repair table written by the insert step.
 - **Assembling:** armips, or keystone from Python. keystone mis-encodes conditional `bl`; check the bytes.
 - **Fonts:** a VWF hook plus a width table in the wrap code (e.g. box 2×224 px, choices ≤45 chars).
-- **Emulator:** `emu.py game.gba` uses Mesen when the user has put their GBA BIOS dump at `<Mesen dir>/Firmware/gba_bios.bin` (windowless, exec hooks, Lua savestates), else mGBA. Ask for the dump once; see `setup.md`.
+- **Emulator:** `emu.py game.gba` drives Mesen (windowless, exec hooks, Lua savestates). It needs `tools/mesen/Firmware/gba_bios.bin`: run `scripts/fetch_emu.py gba-bios` once (`setup.md`).
 - **Release:** IPS ≤16 MiB (building on an earlier IPS patch means shipping a combined patch or documenting the order). Otherwise xdelta. BPS also works for ≤16 MiB.

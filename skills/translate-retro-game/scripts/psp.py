@@ -120,9 +120,10 @@ def free_port():
     s = socket.socket(); s.bind(('127.0.0.1', 0)); p = s.getsockname()[1]; s.close(); return p
 
 def find_emu(arg):
-    for c in [arg, os.environ.get('PPSSPP')] + glob.glob('tools/**/PPSSPPWindows64.exe', recursive=True) + glob.glob('../*/tools/**/PPSSPPWindows64.exe', recursive=True):
+    # each project keeps its own build in tools/; the env var is only a fallback
+    for c in [arg] + sorted(glob.glob('tools/**/PPSSPPWindows64.exe', recursive=True)) + [os.environ.get('PPSSPP')]:
         if c and os.path.exists(c): return os.path.abspath(c)
-    sys.exit('PPSSPPWindows64.exe not found: pass --emu or set PPSSPP (setup.md says where to get it)')
+    sys.exit('PPSSPPWindows64.exe not found under tools/: run scripts/fetch_emu.py ppsspp, or pass --emu')
 
 def set_sound(ms_dir, on):
     """QA runs are silent: [Sound] Enable in the memstick's ppsspp.ini (PPSSPP rewrites the file on exit, so set it every run)."""

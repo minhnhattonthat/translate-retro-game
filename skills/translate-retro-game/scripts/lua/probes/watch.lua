@@ -1,7 +1,7 @@
 -- Who reads or writes an address range? Logs one line per distinct PC: frame, pc, address, the hook's extra args.
 --   emu.py ... --script probes/watch.lua --var WATCH_LO=0x7E1000 [--var WATCH_HI=0x7E10FF] [--var WATCH_MODE='"read"']
 --              [--var FROM=600 --var TO=900]
--- All emulators (mGBA needs 0.11+; PS1 needs --debugger). SNES also hooks the other bank mirror.
+-- All emulators (PS1 needs --debugger). SNES also hooks the other bank mirror.
 local lo = assert(WATCH_LO, "set --var WATCH_LO=0x...")
 local hi, mode, from, to = WATCH_HI or lo, WATCH_MODE or "write", FROM or 0, TO or math.huge
 local seen = {}

@@ -7,14 +7,13 @@
 
 System from the ROM extension:
   .sfc/.smc          -> Mesen (MesenCE or Mesen2; --testRunner, no window)
-  .gba               -> Mesen when <Mesen dir>/Firmware/gba_bios.bin exists (no window; exec hooks; Lua states),
-                        else mGBA (HLE BIOS; Qt window opens). --emu picks either.
+  .gba               -> Mesen (needs <Mesen dir>/Firmware/gba_bios.bin: fetch_emu.py gba-bios)
   .nds               -> DeSmuME. QA fork (has --headless): no window, own ini per run, PNG shots, path states,
                         exec hooks under JIT. Stock: window opens, Lua via lua51.dll beside the exe, shared
                         desmume.ini edited then restored, slot states, --debugger needed for exec hooks
   .iso/.cso with /PSP_GAME -> PPSSPP via psp.py (window hidden, WebSocket debugger; Windows; --state-in/--state-out are
                         PPSSPP .ppst states, extra flags: --clean-saves --fast --show, see psp.py --help)
-  .cue/.bin/.iso/.chd -> PCSX-Redux (-no-ui; SPU muted, 8x speed; --bios or env PSX_BIOS, else OpenBIOS)
+  .cue/.bin/.iso/.chd -> PCSX-Redux (-no-ui; SPU muted, 8x speed; --bios, env PSX_BIOS or tools/bios/scph*.bin (fetch_emu.py psx-bios), else OpenBIOS)
 Route: one step per line, "FRAMES BUTTONS" with BUTTONS "-" (none) or "a+start+up"; "#" starts a comment.
 NDS adds "t128,96" (touch the bottom screen at x,y). PS1 buttons: cross circle square triangle l1 r1 l2 r2 ...
 The run stops after --frames frames, or when the route ends. Writes DIR/f000120.png..., DIR/final.png, DIR/log.txt.
@@ -26,8 +25,8 @@ Lua API: L.on_frame(fn(n)), L.log(s), L.shot(name), L.on_exec(..), L.on_read/L.o
 L.dump_ppu(prefix), L.dump_ram(path), plus the emulator's own API. Ready-made probes: scripts/lua/probes/.
 
 Exit codes: 0 ok, 2 Lua error (message printed), 3 smoke failed, 124 timeout, other = emulator failure.
-Emulator lookup: --emu, then env MESEN / MGBA / DESMUME / PCSX_REDUX / PPSSPP, then tools/**/<exe> under the current repo
-and its sibling repos.
+Emulator lookup: --emu, then tools/**/<exe> in the current repo (each project keeps its own downloaded copy), then env
+MESEN / DESMUME / PCSX_REDUX / PPSSPP.
 """
 import argparse, configparser, glob, json, os, shutil, struct, subprocess, sys, tempfile, time
 
@@ -37,24 +36,23 @@ import sheet as sheetmod  # noqa: E402
 
 SYSTEMS = {".sfc": "snes", ".smc": "snes", ".gba": "gba", ".nds": "nds",
            ".cue": "psx", ".bin": "psx", ".iso": "psx", ".chd": "psx", ".cso": "psp"}
-EXE = {"snes": ("MESEN", "Mesen.exe"), "gba": ("MGBA", "mGBA.exe"), "nds": ("DESMUME", "DeSmuME*.exe"),
+EXE = {"snes": ("MESEN", "Mesen.exe"), "gba": ("MESEN", "Mesen.exe"), "nds": ("DESMUME", "DeSmuME*.exe"),
        "psx": ("PCSX_REDUX", "pcsx-redux.exe")}
-LIB = {"snes": "mesen_lib.lua", "gba": "mgba_lib.lua", "nds": "desmume_lib.lua", "psx": "pcsx_lib.lua"}
+LIB = {"snes": "mesen_lib.lua", "nds": "desmume_lib.lua", "psx": "pcsx_lib.lua"}
 MASH_KEY = {"psx": "cross"}
-MESEN_SETTINGS = '{"Debug": {"ScriptWindow": {"AllowIoOsAccess": true}}}'
 DS_SLOT_IN, DS_SLOT_OUT = 9, 8
 
 
 def find_emu(system, required=True):
+    """Each project keeps its own emulator build in tools/; it wins over a shared one named by the env var."""
     env, name = EXE[system]
+    hits = sorted(glob.glob(os.path.join("tools", "**", name), recursive=True))
+    if hits:
+        return os.path.abspath(hits[0])
     if os.environ.get(env):
         return os.environ[env]
-    for pattern in (os.path.join("tools", "**", name), os.path.join("..", "*", "tools", "**", name)):
-        hits = sorted(glob.glob(pattern, recursive=True))
-        if hits:
-            return os.path.abspath(hits[0])
     if required:
-        sys.exit(f"{name} not found: pass --emu or set {env}")
+        sys.exit(f"{name} not found under tools/: run scripts/fetch_emu.py, or pass --emu")
 
 
 def lua_value(v):
@@ -78,13 +76,18 @@ def read_route(path):
 
 
 def mesen_portable(exe):
-    """settings.json beside Mesen.exe = portable mode (no first-run wizard) and Lua io access for screenshots."""
+    """settings.json beside Mesen.exe = portable mode (no first-run wizard) and Lua io access for screenshots.
+    ConfigUpgrade 1 (FirstRun) makes the GUI fill in default key mappings on its next start; without it (0) the
+    SNES/NES/GB pads stay unmapped and the user can't play the build in this Mesen."""
     path = os.path.join(os.path.dirname(exe), "settings.json")
-    if not os.path.exists(path):
-        with open(path, "w") as f:
-            f.write(MESEN_SETTINGS)
-    elif '"AllowIoOsAccess": true' not in open(path, encoding="utf-8", errors="replace").read():
-        print(f"warning: {path} lacks AllowIoOsAccess=true; screenshots will fail", file=sys.stderr)
+    cfg = json.load(open(path, encoding="utf-8-sig")) if os.path.exists(path) else {}
+    script = cfg.setdefault("Debug", {}).setdefault("ScriptWindow", {})
+    if script.get("AllowIoOsAccess") is True and "ConfigUpgrade" in cfg:
+        return
+    script["AllowIoOsAccess"] = True
+    cfg.setdefault("ConfigUpgrade", 1)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(cfg, f, indent=2)
 
 
 def mesen_state(exe, state, out):
@@ -205,14 +208,11 @@ def run(a):
     if not (a.route or a.route_str or a.frames):
         sys.exit("give --route, --route-str or --frames")
     exe = a.emu
-    if system == "gba" and not exe:  # Mesen first (no window, exec hooks, Lua savestates) if it has the BIOS
-        m = find_emu("snes", required=False)
-        exe = m if m and os.path.exists(os.path.join(os.path.dirname(m), "Firmware", "gba_bios.bin")) else None
     exe = exe or find_emu(system)
     mesen = os.path.basename(exe).lower().startswith("mesen")
     if mesen and system == "gba" and not os.path.exists(os.path.join(os.path.dirname(exe), "Firmware", "gba_bios.bin")):
-        sys.exit("Mesen has no built-in GBA BIOS (games boot black): put the user's console dump at "
-                 f"{os.path.join(os.path.dirname(exe), 'Firmware', 'gba_bios.bin')}, or pass --emu mGBA.exe")
+        sys.exit("Mesen has no built-in GBA BIOS (games boot black): run scripts/fetch_emu.py gba-bios "
+                 f"(or put a dump at {os.path.join(os.path.dirname(exe), 'Firmware', 'gba_bios.bin')})")
     # the QA fork of DeSmuME (references/setup.md) adds --headless/--ini/--lua, path savestates, PNG shots, JIT exec hooks
     dsfork = system == "nds" and b"--headless" in open(exe, "rb").read()
     if a.state_every and system == "nds" and not dsfork:
@@ -282,17 +282,6 @@ def run(a):
     if mesen:
         mesen_portable(exe)
         cmd = [exe, "--testRunner", f"--timeout={a.timeout}", rom, lua]
-    elif system == "gba":
-        if os.path.normcase(rom).startswith(os.path.normcase(tempfile.gettempdir())):
-            print("warning: mGBA can open a modal 'Temporary file loaded' box for ROMs under the temp dir, and the "
-                  "run hangs; copy the ROM elsewhere", file=sys.stderr)
-        cmd = [exe, "-C", "fpsTarget=3000", "-C", "audioSync=0", "-C", "videoSync=0", "-C", "volume=0",
-               "--script", lua]
-        if sav:
-            cmd += ["-C", f"savegamePath={out}"]
-        if a.state_in:
-            cmd += ["-t", os.path.abspath(a.state_in)]  # mGBA: loading a state from Lua wedges the game
-        cmd.append(rom)
     elif dsfork:  # own ini per run: nothing shared to restore, parallel runs are fine
         ini = os.path.join(out, "desmume.ini")
         with open(ini, "w") as f:
@@ -305,7 +294,7 @@ def run(a):
         jit = [] if a.debugger else ["--jit-enable"]  # ~1.5x; stock exec hooks (L.on_exec) need the interpreter
         cmd, cwd = [exe, "--disable-sound", *jit, rom], os.path.dirname(exe)
     else:
-        bios = a.bios or os.environ.get("PSX_BIOS")
+        bios = a.bios or os.environ.get("PSX_BIOS") or next(iter(glob.glob(os.path.join("tools", "bios", "scph*.bin"))), None)
         cmd = [exe, "-portable", "-noupdate", "-no-ui", "-run", "-fastboot", "-loadiso", rom, "-dofile", lua]
         cmd += ["-debugger", "-interpreter"] if a.debugger else ["-no-debugger", "-dynarec"]
         if bios:
@@ -316,7 +305,7 @@ def run(a):
     t0 = time.time()
     stdout = ""
     p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8",
-                         errors="replace", cwd=cwd)  # stderr=DEVNULL made mGBA runs ~4x slower
+                         errors="replace", cwd=cwd)  # stderr=DEVNULL made runs ~4x slower
     try:
         stdout, rc = p.communicate(timeout=a.timeout + 30)[0], p.returncode
     except subprocess.TimeoutExpired:  # kill the whole tree and reap it, so the next run can start
@@ -378,7 +367,7 @@ if __name__ == "__main__":
     ap.add_argument("--script", action="append", help="Lua appended after the driver (repeatable)")
     ap.add_argument("--var", action="append", help="NAME=LUA global set before the scripts (repeatable)")
     ap.add_argument("--emu")
-    ap.add_argument("--bios", help="PS1 BIOS image (else env PSX_BIOS, else PCSX-Redux's OpenBIOS)")
+    ap.add_argument("--bios", help="PS1 BIOS image (else env PSX_BIOS, else tools/bios/scph*.bin, else PCSX-Redux's OpenBIOS)")
     ap.add_argument("--debugger", action="store_true",
                     help="PS1/NDS: interpreter, no JIT. Needed for PS1 hooks and stock-DeSmuME L.on_exec (not the QA fork)")
     ap.add_argument("--timeout", type=int, default=300)

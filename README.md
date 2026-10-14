@@ -6,13 +6,13 @@ It is a playbook plus tested tools, distilled from eight finished fan translatio
 
 ## What's inside
 
-- **A phased workflow**, each phase with a checkable "done when": recon → identity build (byte-identical repack) → extract (roundtrip-tested) → marker build → batch translation with subagents → insert and lint → emulator QA → release.
+- **A phased workflow**, each phase with a checkable "done when": recon → per-game debug tool (warp to any scene, no playthrough) → identity build (byte-identical repack) → extract (roundtrip-tested) → marker build → batch translation with subagents → insert and lint → emulator QA → release.
 - **Headless emulator QA** (`emu.py`): boots a ROM, plays a scripted route of button presses (and touch on NDS), takes screenshots, makes contact sheets, saves and loads states, boots with a copy of your save or memory card, runs Lua probes (memory watch, RAM/VRAM dumps, DMA logs), and exits with a real code (0 ok, 2 Lua error, 3 black-screen smoke failure, 124 timeout).
 
   | Platform | Emulator |
   |---|---|
   | SNES | MesenCE (or Mesen2) |
-  | GBA | MesenCE with your GBA BIOS dump, else mGBA |
+  | GBA | MesenCE (BIOS fetched from retrobios) |
   | NDS | [DeSmuME QA fork](https://github.com/minhnhattonthat/desmume/releases) (headless), or stock DeSmuME + Lua 5.1 |
   | PS1 | PCSX-Redux |
   | PSP | PPSSPP (window hidden, WebSocket debugger) |
@@ -47,8 +47,8 @@ The skill loads on its own when you work on a ROM-hacking or game-translation re
 ## What you need
 
 - Python 3.10+ and git.
-- **Your own ROM or disc dump** of the game. Nothing here downloads or contains ROMs or BIOS files.
-- The emulator and tools for your platform. The skill's first step walks you through them; the full list with download sources is in [`skills/translate-retro-game/references/setup.md`](skills/translate-retro-game/references/setup.md).
+- **Your own ROM or disc dump** of the game. Nothing here downloads or contains ROMs; console BIOS files are fetched from [retrobios](https://github.com/Abdess/retrobios).
+- The emulator and tools for your platform. Emulators are downloaded as release zips into each project's own `tools/`; the skill's first step walks you through them; the full list with download sources is in [`skills/translate-retro-game/references/setup.md`](skills/translate-retro-game/references/setup.md).
 - The emulator harness is tested on Windows. The Python tools are cross-platform.
 
 ## Notes
