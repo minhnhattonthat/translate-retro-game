@@ -19,7 +19,8 @@
              show, including broken pointers that land mid-line. Each run prints the first pointer slot that
              reaches it ("<- 0x0123A8 +2" = two more). Old pointer arrays your build no longer uses still count,
              so after relocation pass --slots (exact) or list the confirmed-dead runs in --known.
---slots FILE pointers the game really uses, one per line: "SLOT" (hex file offset of a 4-byte GBA pointer) or
+--slots FILE pointers the game really uses (each reaches up to its string's NUL, so runs after leading control
+             codes count), one per line: "SLOT" (hex file offset of a 4-byte GBA pointer) or
              "SLOT TARGET" (target file offset given, for any platform's pointer format). Keeps only runs these
              reach; replaces the --gba-ptrs word scan. Dump it from your extractor's pointer list.
 --known FILE runs to stop reporting, one hex offset per line (anything after it is a note): Japanese you keep on
@@ -89,6 +90,21 @@ def refs(ptrs, s, e):
         out.append(ptrs[k][1])
         k += 1
     return out
+
+
+def slot_reach(ptrs, b, cap=0x10000):
+    """--slots: each pointer reaches from its target to the string's NUL terminator, so a run that follows leading
+    control codes ("n0S075「...") still counts. -> sorted (target, end, slot)."""
+    out = []
+    for t, slot in ptrs:
+        end = b.find(b"\0", t, t + cap)
+        out.append((t, end if end >= 0 else t + 1, slot))
+    return sorted(out)
+
+
+def refs_reach(reach, s, e):
+    """Slots whose [target, end) overlaps the run [s, e)."""
+    return [slot for t, end, slot in reach[:bisect.bisect_left(reach, (e, -1, -1))] if end > s]
 
 
 def pointed(offsets, s, e):
@@ -164,6 +180,7 @@ def main(argv=None):
     b = open(a.built, "rb").read()
     orig = open(a.orig, "rb").read() if a.orig else None
     ptrs = load_slots(a.slots, b) if a.slots else gba_ptrs(b) if a.gba_ptrs else None
+    reach = slot_reach(ptrs, b) if a.slots else None
     known = sorted(t[0] for t in hex_lines(a.known) if t) if a.known else []
     if a.sjis:
         char_at = sjis_char_hw if a.halfwidth else sjis_char
@@ -187,7 +204,7 @@ def main(argv=None):
                 continue
             if not a.kanji_runs and not text_like(decode(b[s:e])):
                 continue
-            slots = refs(ptrs, s, e) if ptrs is not None else None
+            slots = (refs_reach(reach, s, e) if a.slots else refs(ptrs, s, e)) if ptrs is not None else None
             if slots == []:
                 continue
             if pointed(known, s, e):
