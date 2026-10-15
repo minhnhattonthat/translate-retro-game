@@ -1,6 +1,7 @@
 # SNES notes
 
 - **Mapping:** LoROM (file offset = `((addr & 0x7F0000) >> 1) | (addr & 0x7FFF)`) or HiROM (`addr & 0x3FFFFF`, banks `$C0+`). Mesen memory callbacks report CPU addresses, so convert them before comparing to file offsets.
+- **ExHiROM (>4 MB):** banks `$C0–$FF` hold the first 4 MB (`addr & 0x3FFFFF`), `$40–$7D` the rest (`addr & 0x7FFFFF`); the header sits at `$40FFC0`. Set the assembler's `exhirom` mode and test an address from each half.
 - **Expanding the ROM:**
   - 2 → 4 MB: set the header size byte (`$7FD7`/`$FFD7` = `$0C`) and fix the checksum at release (`bps.py snes-checksum`).
   - Expanded banks are filled with 0xFF. `romdiff.py` treats extra 0xFF bytes as unchanged.
@@ -29,6 +30,8 @@
 - **VRAM uploads go through the game's own NMI DMA dispatcher** (find it with `snes_dmalog.lua`: caller PC of the DMA). Hook it and add command ids that run queued `(src, size, vram, bank)` slots in WRAM. Writing VRAM outside vblank gives glitches that look random.
 - **A NMI wrapper in expanded ROM** can gate the original NMI (return early in a custom mode, else `JML` into the original body after the pushes). Good for a title or intro screen you redraw yourself.
 - **VWF data:** one advance-width byte per table code, in `.tbl` order, beside the font data. The renderer shifts each glyph by `cursor & 7` px into a WRAM tile buffer and DMAs the tiles. Make the lint parse the width rows from the asm source, so lint and engine never disagree.
+- **Marks as an overlay layer (tall-glyph languages):** when the game's cell or line buffer is too short for tone marks, draw each accented letter as two glyphs ORed into a taller line buffer: the base letter (own width row) and the mark (separate font bank, own width row, offset above the x-height). The script keeps one precomposed code per letter; a table maps code → (base glyph, mark glyph). This needs ~26 bases plus ~15 marks instead of ~130 full glyphs. Every text path (dialogue, menus, battle, name entry) has its own draw routine and line buffer: find them all by logging the game's draw calls and hook each one, or some screens stay clipped.
+- **Glyph-slot indirection:** if the game maps text code → glyph slot through a table, remap that table instead of rewriting script bytes.
 - **Several tables, one font:** dialogue, intro/ending crawl and item or menu text often use the same glyphs but different control codes (`<line> <scroll> <pause> <text_spd>+arg <name> <num>+arg <end> <force_end>`). Keep one `.tbl` per script type, with the shared glyph rows generated from one source.
 - **Cutscene command streams are not text:** an ending script of `<move><n> <wait> <dialogue id> <palette> <fade>` bytes is a small VM. Extract it as data, translate nothing in it, but re-check its timing and dialogue ids when text length changes.
 - **Debug build:** a `debug.asm` applied only to the debug build (start inventory/sword byte, NOP the damage and MP decrements) works in every emulator without Lua. Keep it out of the release asm; a `//`-commented cheat in the main patch is one keystroke from shipping.

@@ -91,9 +91,10 @@ Cloning English into another language (Vietnamese on top of English, same engine
 
 ## Diacritic-heavy targets (Vietnamese and similar)
 
-- **One table code per precomposed letter+tone.** Check the font cell height first: stacked tone marks need a taller cell than an 8 px font has.
+- **One table code per precomposed letter+tone.** Check the font cell height first: stacked tone marks need a taller cell than an 8 px font has, and a clipped mark (top of the line buffer) is the classic failure of a patch nobody zoomed into. If the cell can't grow, compose base + mark at draw time (`platform-snes.md` §Engine patching).
 - **Capitals with marks only where the text uses them.** Scan the translation and glossary for capitalised word starts, add the missing glyphs on demand, and make the lint flag any character outside the table.
 - **Fold the space into punctuation** (`, ` `. ` `! ` `... ` as single codes) to save a code and a width entry per use; the encoder must take the longest match.
+- **Torture line for the width gate:** include the tallest stack (`Ấ`, `ẳ`, `ỗ`, `Ộ`, `Ự`) on the first and last line of every window type, menus and battle text included, and read a zoomed shot.
 - Keep the original line as a comment or `jp` field beside each translation. Human-written scripts still carry control-code typos (`num <$02>` for `<num><$02>`), so the control-code check is not optional.
 
 ## Fitting text
