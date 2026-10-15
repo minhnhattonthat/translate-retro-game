@@ -170,6 +170,42 @@ def to_png(path):
     os.remove(path)
 
 
+def keep_minimized(p, folder):
+    """Windows: minimize (without focus) every window of the emulator's processes while it runs: the emulator creates
+    its window visible whatever the start flags say. Windows of processes started from `folder` are matched by image path."""
+    import ctypes
+    import ctypes.wintypes as wt
+    import threading
+    u, k = ctypes.windll.user32, ctypes.windll.kernel32
+    k.OpenProcess.restype = wt.HANDLE
+    folder = os.path.normcase(os.path.abspath(folder))
+
+    def image(pid):
+        h = k.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+        if not h:
+            return ""
+        buf, n = ctypes.create_unicode_buffer(520), wt.DWORD(520)
+        k.QueryFullProcessImageNameW(h, 0, buf, ctypes.byref(n))
+        k.CloseHandle(h)
+        return os.path.normcase(buf.value)
+
+    @ctypes.WINFUNCTYPE(wt.BOOL, wt.HWND, wt.LPARAM)
+    def each(hwnd, _):
+        if u.IsWindowVisible(hwnd) and not u.IsIconic(hwnd):
+            pid = wt.DWORD()
+            u.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+            if image(pid.value).startswith(folder):
+                u.ShowWindow(hwnd, 7)  # SW_SHOWMINNOACTIVE
+        return True
+
+    def loop():
+        while p.poll() is None:
+            u.EnumWindows(each, 0)
+            time.sleep(0.05)
+
+    threading.Thread(target=loop, daemon=True).start()
+
+
 def is_psp(path):
     """A PSP UMD image: ISO9660 whose root directory names PSP_GAME (CSO is compressed: go by the extension)."""
     if path.lower().endswith(".cso"):
@@ -315,6 +351,8 @@ def run(a):
         extra["startupinfo"] = si
     p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8",
                          errors="replace", cwd=cwd, **extra)  # stderr=DEVNULL made runs ~4x slower
+    if os.name == "nt" and system == "psx" and not a.show:  # (other emulators: untested with a minimized window)
+        keep_minimized(p, os.path.dirname(exe))
     try:
         stdout, rc = p.communicate(timeout=a.timeout + 30)[0], p.returncode
     except subprocess.TimeoutExpired:  # kill the whole tree and reap it, so the next run can start

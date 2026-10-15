@@ -80,6 +80,7 @@ When the user reports an in-game bug, reproduce it with `emu.py` first, from the
 |---|---|
 | `fetch_emu.py mesen\|desmume\|pcsx\|ppsspp\|gba-bios\|psx-bios` | Download the emulator release matching this OS/CPU into `tools/<name>/`, or a console BIOS from retrobios |
 | `emu.py ROM --out DIR --route r.txt --shot-every 300 --smoke --sheet [--sav F] [--script x.lua]..` | Headless boot, scripted input, screenshots, contact sheet, saves, Lua hooks. Mesen .sfc and .gba, DeSmuME .nds, PCSX-Redux .cue, PPSSPP PSP .iso (window hidden, states, no Lua). Exit 0 ok / 2 Lua error / 3 smoke fail / 124 timeout |
+| `record.py ROM.cue --out D [--card F] [--watch n=0xADDR:N]` / `replay.py D --out O [ROM.cue]` | PS1: record a human playthrough as a route + states + RAM checkpoints, replay it headless on any build; exit 4 = left the recorded path (`references/emulator-qa.md` §Record) |
 | `lua/probes/*.lua` | `--script` probes: memory watch, RAM dump, PPU dump, SNES ROM-read and DMA logs |
 | `sheet.py DIR --changed 0.02 [--from N --to M] [--crop x,y,w,h] [--zoom N] [--compare DIR2]` | One contact-sheet PNG from many frames; read it instead of individual shots |
 | `jp_left.py BUILT --sjis\|--tbl jp.tbl [--slots F] [--known F] [--gba-ptrs] [--orig ORIG]` | Japanese runs still in the build; exit 1 if any. `--slots`/`--gba-ptrs` keep only text a pointer still reaches |

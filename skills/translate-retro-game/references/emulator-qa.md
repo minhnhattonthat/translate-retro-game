@@ -149,3 +149,18 @@ Pair it with `--mash` and a long `--frames` to sweep menus and dialogue cheaply.
 - Saves and settings live in `<exe dir>/memstick/`; a game that offers "create save data?" shows its prompt only while `PSP/SAVEDATA` is empty (`--clean-saves`). `memstick/PSP/SYSTEM/ppsspp.ini` can be edited between runs (the emulator rewrites it on exit).
 - Not found, so do not look: a Lua API, a headless build in the standard zip, a savestate/screenshot CLI flag, a way to keep running at speed without focus.
 
+
+## Record a playthrough once, replay it after every build (PS1 / PCSX-Redux)
+
+The costly part of QA is a person reaching the late scenes. Record that once:
+
+```
+python scripts/record.py game.cue --out work/rec/intro --card save.mcd --state-every 1800 --watch map=0x800A1234:4
+python scripts/replay.py work/rec/intro --out work/qa/intro [build.cue] [--shot-every 600] [--sheet]
+```
+
+- `record.py` opens PCSX-Redux at real speed; the player plays and closes the window. It reads pad 1 each vsync (`pad.getButton`) and writes `route.txt` (the normal route format: cold boot to the end), the start card, a savestate every N frames and the `--watch` RAM bytes at those frames (pick stable game variables: map id, story flag, party HP; none = no resync check).
+- `replay.py` plays it headlessly at 8x on any build (default: the recorded ROM): same route and start card, states at the same frame numbers, and `pcsx_verify.lua` compares the watched bytes at each checkpoint. Exit 4 and `DIVERGED frame N name want got` in log.txt mean the run left the recorded path.
+- Replays are deterministic on the same build (tested: 6 of 6 checkpoints match). On a build with different text lengths a press can land on another page and the run drifts; the first DIVERGED frame says where. Re-record from there, or record on the build under test.
+- Then run the project's oracles over `<out>/*.sstate` and `<out>/f*.png`: leftover-text scan, overflow/clipping check, patch-code integrity (does the patch's RAM still equal the build: a savestate diff), a shot diff against the replay on the original disc.
+- Other emulators: Mesen (.mmo) and DeSmuME (.dsm) record movies natively; this tool is PCSX-Redux only. A `pcsx_lib` script must not assign the global `VSYNC` (the driver's listener owns it).
