@@ -151,7 +151,10 @@ class Run:
         if state: cmd.append(f'--state={state}')
         cmd += list(extra)
         cmd.append(os.path.abspath(iso))
-        self.p = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        si = subprocess.STARTUPINFO()  # ask for a hidden window at launch, so it does not flash before win_show(hide) below
+        si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        si.wShowWindow = 0 if not show else 5  # SW_HIDE / SW_SHOW
+        self.p = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, startupinfo=si)
         self.ws = None; t0 = time.time()
         while time.time() - t0 < 30:
             try: self.ws = WS(self.port, timeout=30); break

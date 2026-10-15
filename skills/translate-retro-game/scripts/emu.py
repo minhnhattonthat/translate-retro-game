@@ -307,8 +307,14 @@ def run(a):
         cwd = os.path.dirname(exe)  # -portable keeps settings and (without --sav) memory cards beside the exe
     t0 = time.time()
     stdout = ""
+    extra = {}
+    if os.name == "nt" and not a.show:  # open the emulator window minimized without stealing focus (no popups)
+        si = subprocess.STARTUPINFO()
+        si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        si.wShowWindow = 7  # SW_SHOWMINNOACTIVE
+        extra["startupinfo"] = si
     p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8",
-                         errors="replace", cwd=cwd)  # stderr=DEVNULL made runs ~4x slower
+                         errors="replace", cwd=cwd, **extra)  # stderr=DEVNULL made runs ~4x slower
     try:
         stdout, rc = p.communicate(timeout=a.timeout + 30)[0], p.returncode
     except subprocess.TimeoutExpired:  # kill the whole tree and reap it, so the next run can start
@@ -378,6 +384,6 @@ if __name__ == "__main__":
     ap.add_argument("--smoke", action="store_true")
     ap.add_argument("--fast", action="store_true", help="PSP: hold PPSSPP's fast-forward (needs the window focused)")
     ap.add_argument("--sound", action="store_true", help="PSP: keep audio on (muted by default)")
-    ap.add_argument("--show", action="store_true", help="PSP: leave the PPSSPP window visible")
+    ap.add_argument("--show", action="store_true", help="leave the emulator window visible (PSP: PPSSPP; PS1 on Windows: PCSX-Redux, else it starts minimized)")
     ap.add_argument("--clean-saves", action="store_true", help="PSP: empty the memstick SAVEDATA first")
     sys.exit(run(ap.parse_args()))
