@@ -82,8 +82,11 @@ def mesen_portable(exe):
     path = os.path.join(os.path.dirname(exe), "settings.json")
     cfg = json.load(open(path, encoding="utf-8-sig")) if os.path.exists(path) else {}
     script = cfg.setdefault("Debug", {}).setdefault("ScriptWindow", {})
-    if script.get("AllowIoOsAccess") is True and "ConfigUpgrade" in cfg:
+    # --testRunner never runs the GUI's FirstRun defaults: SNES port 1 stays unattached and emu.setInput is ignored
+    port = cfg.setdefault("Snes", {}).setdefault("Port1", {})
+    if script.get("AllowIoOsAccess") is True and "ConfigUpgrade" in cfg and port.get("Type"):
         return
+    port.setdefault("Type", "SnesController")
     script["AllowIoOsAccess"] = True
     cfg.setdefault("ConfigUpgrade", 1)
     with open(path, "w", encoding="utf-8") as f:
