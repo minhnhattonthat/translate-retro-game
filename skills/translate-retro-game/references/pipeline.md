@@ -22,6 +22,7 @@ Distilled from eight finished fan translations across SNES, GBA, NDS and PS1. Re
   - `docs/re/` or `notes/` for reverse-engineering findings
   - `glossary.md` at the root
   - `tools/` for the Python code
+- **Target language is a parameter from day one**, even with only English planned. Per language: the text field (`en`, `vi`), the encoder (a fixed table, or codes allocated from the characters the script uses), the glyph source, `glossary_<lang>.md`, the build output name, the release name and the lint. Hardcoding `en` made the second language touch about 12 files. Font code space is shared between text glyphs and any pre-rendered menu cells, so count both against the engine's limit.
 - One entry point: `build.py <cmd>` or `make build|check|release`. Use a single command per job, not a sequence the agent has to remember.
 - **Text format:** JSON, one file per bank/block/scene, `indent=1`, `ensure_ascii=False`.
   - Fields: `id` (stable, address-based), `ptr`/`slots`, `jp`, `en`, `max` (bytes or px), `box`/`speaker`, `status`, `notes`.
@@ -109,6 +110,8 @@ Wire all of these into the one-command check (Step 0) so the pre-commit hook run
   - ASCII/encodable;
   - glossary terms (JP term present ⇒ EN form required; an "Avoid" column for banned spellings);
   - no ordinal suffix after a variable.
+- **Stub last lines:** fail a multi-line paragraph whose last line is under ~6 characters (one orphaned syllable or word). It is mechanical, so the lint catches it and no reviewer has to.
+- **Tests build their own ROM.** Build into a temp path inside the test (a module-scope fixture per language) instead of reading `build/*.sfc`: a stale artifact passes while the source is broken, and a missing one makes the test skip silently.
 - **Keep output quiet.** Print errors and a count, and roll known-OK warnings into one summary line. A check that printed 2,476 warnings got grepped away by the agent, real ones included.
 - **ROM-level checks:**
   - `scripts/romdiff.py` with an allowed-ranges file: nothing written outside text banks, pointer slots and free space. This catches writes that wipe flag bytes or graphics.
@@ -119,7 +122,7 @@ Wire all of these into the one-command check (Step 0) so the pre-commit hook run
   - ROM side: `scripts/jp_left.py`. Best: `--slots FILE` listing every pointer slot your insert step writes, so only text a pointer reaches is reported (on one game 185 `--gba-ptrs` hits became 0 real ones); `--known FILE` lists intended-Japanese offsets to skip. On GBA without a slot list, run `--gba-ptrs` **without** `--orig`. Relocation leaves the old Japanese unreferenced, and broken pointers can land mid-line in it; `--orig` hides that case, because the bytes the pointer lands on differ from what was at that offset originally. Add `--halfwidth` for debug and system text, then triage, since it is noisier;
   - runtime side: the draw-hook scan (`emulator-qa.md`).
   - A text-side check alone once passed with 3 Japanese lines still reachable behind a pointer table.
-- **Release gate:** lint → roundtrip → build → tests → smoke → `jp_left.py`, stop at the first failure.
+- **Release gate:** lint → roundtrip → build → tests → smoke → `jp_left.py` → the screen tour (`emulator-qa.md` §Screen tour), stop at the first failure. The release script runs the tour itself (with an opt-out flag for iteration), so a release cannot skip it.
 
 ## Pitfalls that reached a user's playtest
 

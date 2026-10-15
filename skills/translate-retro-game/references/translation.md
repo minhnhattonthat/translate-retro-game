@@ -8,6 +8,7 @@ How to turn extracted Japanese into reviewed English with parallel agents (subag
 - Translator dispatch
 - Validation and merge
 - Review
+- Second language on a finished repo
 - Fitting text
 - Glossary upkeep
 - Models
@@ -69,6 +70,7 @@ The merge refuses bad batches. The build/lint stays the hard gate. Lines that st
 - **Reviewer agent** (template: `assets/reviewer-brief.md`): read-only. Its input is a pairs file of `>> id | JP / EN` entries with ±2 context lines.
   - It judges accuracy (quoting the JP and saying what it means), consistency, naturalness and voice.
   - Rate findings Critical / Important / Minor, with ids.
+- A subagent cannot write its report to a file: tell it to return the report as its final message. Dispatch only models the harness offers (a ruling like "use model X for reviews" is unusable if the agent tool lacks X; say which model ran).
 - Fix Critical and Important per batch. **Defer Minors to one polish pass** at the end; per-bank fix rounds for Minors wasted a lot of turns.
 - **Whole-project sampled review** (~120–150 entries across the game) before release catches drift that per-batch review misses.
 - Things reviewers missed and users caught:
@@ -77,6 +79,15 @@ The merge refuses bad batches. The build/lint stays the hard gate. Lines that st
   - a name off by one letter ("Bran" vs "Plan");
   - awkward stock phrases ("TIPS … GET!").
 - Put these on the reviewer checklist.
+
+## Second language on a finished repo
+
+Cloning English into another language (Vietnamese on top of English, same engine) went smoothly except for what was copied selectively:
+- **Copy the style, not just the terms.** `glossary.md`'s Style rules (register per scene, e.g. rough first person in two endings) did not reach the new glossary; only the reviewer caught it. Copy the whole file, then translate its terms.
+- **Pair the new language with the old one.** The reviewer's pairs file lists JP, the existing translation and the new lines (`tools/pairs.py OUT lang`), so it can judge against the source and flag calques.
+- **Author paragraphs, generate lines.** Keep the translation as `{id: [paragraph, ...]}` and let a wrap tool make the fixed-width lines (`tools/wrap.py` in the Gundam repo): terms and names from the glossary never split, and a paragraph never ends on a stub shorter than ~6 chars ("vũ / trụ."). Edit the paragraphs, not the wrapped output.
+- Lint reads the glossary of the language it checks (`glossary_<lang>.md`); a JP term that is a substring of another ("ガンダムチーム" inside "Ｇガンダムチーム") needs every form the longer text uses in its row.
+- The engine needs the language as a parameter (`pipeline.md` §Repo layout), or each new language touches a dozen files.
 
 ## Fitting text
 

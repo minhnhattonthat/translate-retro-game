@@ -33,6 +33,7 @@ These are what earlier users settled on. Offer them as defaults instead of guess
 - **Names match `glossary.md` exactly.** Near-miss spellings ("Bran" for "Plan") are the most common thing users catch.
 - **No suffix glued onto a variable.** "1st" came out as "1th". Rephrase instead, e.g. "Contest No. 1".
 - **Jokes and wordplay keep their punch**, even if the literal meaning shifts.
+- **A second language on a finished repo** reuses the engine and tools: read `references/translation.md` §Second language first (copy the style rules and reviewer brief, wrap paragraphs by tool).
 - **Release zip = patch + README only**, no .cue or other files the player already has.
 - **Questions to ask once per project:**
   - honorifics and name order (projects have gone both ways);

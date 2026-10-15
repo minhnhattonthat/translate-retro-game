@@ -27,6 +27,16 @@ python -X utf8 $SKILL/scripts/emu.py rom/game.sfc --out work/qa/warp --script to
 
 User saves, memory cards and savestates still help (ask once at project start), and `--state-every N` drops a state every N frames along a long route. Neither replaces the debug tool.
 
+## Screen tour (the debug tool plus a text check)
+
+The Gundam repo's `tools/tour.py` + `tools/lua/debug_screen.lua` are the model: force every screen of every case, then **read the text back from video memory** instead of trusting screenshots.
+- **Force, don't play.** An `on_exec` hook at the point where the game picks its string writes the selector (team and mission, ending flags) first. Each case is its own cold-boot run, so cases run in parallel (`--jobs 3`) and none depends on another.
+- **Dump when the text is complete.** Typed, scrolled or faded text is never fully on screen at one frame. Dump VRAM and PPU registers (`L.dump_ppu`) when the writer finishes or a fixed number of frames after it, and read the tilemap: tile index = entry & 0x3FF, chr and tilemap base and map height from the `.ppu.txt` of that scene (they differ per scene: one scene used chr word `0x4000` and a double-height map).
+- **Check each line:** the count of non-blank tile columns in the line's tile rows must equal the string's non-space characters. That catches lost characters, a wrap into the next row and stray tiles below, in every language, with no OCR. Also assert that every text id was shown at least once (the coverage line of the report).
+- **Which string was shown:** log the writer's pointer register at its entry (Mesen2 state keys `cpu.dbr`, `cpu.x`, `cpu.y`; a pointer kept in a task slot lives at slot-base + offset, so prefer the register) and map it to an id from the build's own layout.
+- **Sheets for the eye:** render the full text from the dump (not the screenshot) into a contact sheet per group; keep the screenshots in each case folder.
+- Exit non-zero on any failed case so the release gate can use it.
+
 ## emu.py
 
 ```

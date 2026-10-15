@@ -125,8 +125,9 @@ def load_tbl(path, rows=False, le16=False):
             continue
         width = 2 if le16 else (len(hexpart.strip()) + 1) // 2
         for i, c in enumerate(ch if rows else [ch]):
-            if JP.search(c):
-                entries[(base + i).to_bytes(width, "little" if le16 else "big")] = c
+            # keep non-Japanese entries too: a longer non-JP code (e.g. 2-byte "F0EC=-") must win over a
+            # shorter JP reading of the same bytes
+            entries[(base + i).to_bytes(width, "little" if le16 else "big")] = c
     return entries, max((len(k) for k in entries), default=1)
 
 
@@ -135,9 +136,10 @@ def tbl_char(entries, longest, even=False):
         if even and i & 1:  # shortcut: 16-bit text at odd offsets is missed; add an --odd pass if a game needs it
             return 0
         for n in range(longest, 0, -1):
-            ch = entries.get(bytes(b[i:i + n]))
+            k = bytes(b[i:i + n])
+            ch = entries.get(k) if len(k) == n else None  # near the end a slice is shorter than n
             if ch:
-                return n
+                return n if JP.search(ch) else -n  # -n: a non-JP code, skip all its bytes
         return 0
     return f
 
@@ -146,11 +148,11 @@ def scan(b, char_at, lo, hi, min_chars):
     runs, i = [], lo
     while i < hi:
         n = char_at(b, i)
-        if not n:
-            i += 1
+        if n <= 0:
+            i += -n or 1
             continue
         start, count = i, 0
-        while i < hi and n:
+        while i < hi and n > 0:
             i += n
             count += 1
             n = char_at(b, i)
@@ -192,7 +194,7 @@ def main(argv=None):
         def decode(s):
             out, i = [], 0
             while i < len(s):
-                n = char_at(s, i) or 1
+                n = abs(char_at(s, i)) or 1
                 out.append(entries.get(bytes(s[i:i + n]), "."))
                 i += n
             return "".join(out)
@@ -240,9 +242,14 @@ def _selftest():
     with tempfile.TemporaryDirectory() as d:
         open(os.path.join(d, "t.tbl"), "w", encoding="utf-8").write("# rows\n0A0=りるAれ\n")
         e, n = load_tbl(os.path.join(d, "t.tbl"), rows=True, le16=True)
-        assert e == {b"\xa0\x00": "り", b"\xa1\x00": "る", b"\xa3\x00": "れ"} and n == 2
+        assert e == {b"\xa0\x00": "り", b"\xa1\x00": "る", b"\xa2\x00": "A", b"\xa3\x00": "れ"} and n == 2
         f = tbl_char(e, n, even=True)
         data = b"\x00" + b"\xa0\x00\xa1\x00\xa3\x00\xa0\x00"
+        open(os.path.join(d, "m.tbl"), "w", encoding="utf-8").write("F0=カ\nEC=キ\nF0EC=-\n")
+        e2, n2 = load_tbl(os.path.join(d, "m.tbl"))
+        f2 = tbl_char(e2, n2)
+        assert f2(b"\xf0\xec", 0) == -2 and f2(b"\xec", 0) == 1  # longer non-JP code wins over JP prefix
+        assert scan(b"\xf0\xec" * 4, f2, 0, 8, 2) == []  # no false run starting mid-code on EC
         assert scan(data, f, 0, len(data), 4) == [] and scan(b"\x00\x00" + data[1:], f, 0, 10, 4) == [(2, 10)]
         open(os.path.join(d, "s.txt"), "w").write("0x0  # real\n8 12\n")
         assert load_slots(os.path.join(d, "s.txt"), rom) == [(0x10, 0), (0x12, 8)]
