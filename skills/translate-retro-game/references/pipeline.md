@@ -37,6 +37,7 @@ Distilled from eight finished fan translations across SNES, GBA, NDS and PS1. Re
    - an older fan patch (diff it against the original to map text and code regions, or build on it);
    - community tools for the game or engine (decompressors, table files, disassemblies);
    - partial or foreign-language patches and their notes (a Korean or Spanish patch often documents formats).
+   - a patch that ships its source (`.asm`, script, `Data/*.bin`) is a free RE map: `grep -nE '^\s*(org|incbin)'` lists every hook site and replaced graphic, usually labelled. Clone it into a scratch dir and don't run its binaries. Verify each address in the emulator before relying on it (revision and copier-header offsets differ), then copy the useful ones into `docs/re/`.
 2. **Header and map:** mapping mode, size, checksum, free space (runs of 0x00/0xFF at bank ends).
 3. **Compression:** look for game LZ variants and BIOS LZ77/Huffman (GBA). Write a decompressor plus a recompressor, and test the pair byte-for-byte on real blocks.
 4. **Text encoding:**

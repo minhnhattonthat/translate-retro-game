@@ -21,3 +21,14 @@
 - **Checksum:** complement at `+0x2C`, sum at `+0x2E` of the header (`$FFDC/$FFDE` HiROM, `$7FDC/$7FDE` LoROM). Do it only in the release step.
 - **Emulator:** MesenCE (or Mesen2) via `emu.py` (`.sfc`/`.smc`); see `setup.md`.
 - **Release:** BPS.
+
+## Engine patching (what a full VWF patch needs)
+
+- **Hook pattern:** overwrite the first instructions of the game's routine with `JML new` (4 bytes; pad a cut-in-half instruction with NOPs). `new` runs the displaced instructions, does the work, then `JML`s to the address after the hook. Return through the `$80+` mirror of the bank so execution stays FastROM. Keep one hook list (`org` + label + why) in `docs/re/`; a full patch has ~100 (items, save menu, title, text engine, ending).
+- **FastROM:** set the map-mode byte `$FFD5` to `$30`; hook reset to write `$01` to `$420D` (MEMSEL) and clear `$4200/$420B/$420C` before jumping back; hook the NMI and IRQ entries the same way. Only `$80+` banks run fast. Do it when a VWF renderer eats frame time, and boot cold to check.
+- **VRAM uploads go through the game's own NMI DMA dispatcher** (find it with `snes_dmalog.lua`: caller PC of the DMA). Hook it and add command ids that run queued `(src, size, vram, bank)` slots in WRAM. Writing VRAM outside vblank gives glitches that look random.
+- **A NMI wrapper in expanded ROM** can gate the original NMI (return early in a custom mode, else `JML` into the original body after the pushes). Good for a title or intro screen you redraw yourself.
+- **VWF data:** one advance-width byte per table code, in `.tbl` order, beside the font data. The renderer shifts each glyph by `cursor & 7` px into a WRAM tile buffer and DMAs the tiles. Make the lint parse the width rows from the asm source, so lint and engine never disagree.
+- **Several tables, one font:** dialogue, intro/ending crawl and item or menu text often use the same glyphs but different control codes (`<line> <scroll> <pause> <text_spd>+arg <name> <num>+arg <end> <force_end>`). Keep one `.tbl` per script type, with the shared glyph rows generated from one source.
+- **Cutscene command streams are not text:** an ending script of `<move><n> <wait> <dialogue id> <palette> <fade>` bytes is a small VM. Extract it as data, translate nothing in it, but re-check its timing and dialogue ids when text length changes.
+- **Debug build:** a `debug.asm` applied only to the debug build (start inventory/sword byte, NOP the damage and MP decrements) works in every emulator without Lua. Keep it out of the release asm; a `//`-commented cheat in the main patch is one keystroke from shipping.

@@ -89,6 +89,13 @@ Cloning English into another language (Vietnamese on top of English, same engine
 - Lint reads the glossary of the language it checks (`glossary_<lang>.md`); a JP term that is a substring of another ("ガンダムチーム" inside "Ｇガンダムチーム") needs every form the longer text uses in its row.
 - The engine needs the language as a parameter (`pipeline.md` §Repo layout), or each new language touches a dozen files.
 
+## Diacritic-heavy targets (Vietnamese and similar)
+
+- **One table code per precomposed letter+tone.** Check the font cell height first: stacked tone marks need a taller cell than an 8 px font has.
+- **Capitals with marks only where the text uses them.** Scan the translation and glossary for capitalised word starts, add the missing glyphs on demand, and make the lint flag any character outside the table.
+- **Fold the space into punctuation** (`, ` `. ` `! ` `... ` as single codes) to save a code and a width entry per use; the encoder must take the longest match.
+- Keep the original line as a comment or `jp` field beside each translation. Human-written scripts still carry control-code typos (`num <$02>` for `<num><$02>`), so the control-code check is not optional.
+
 ## Fitting text
 
 - Limits come from the width gate (`pipeline.md` §Width gate), measured in this game before the first dispatch.
