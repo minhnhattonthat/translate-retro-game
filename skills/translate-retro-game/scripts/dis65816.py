@@ -79,19 +79,26 @@ def disasm(rom, addr, n, mapping="lorom", m8=False, x8=False):
             m8, x8 = m8 and not val & 0x20, x8 and not val & 0x10
         elif mn == "SEP":
             m8, x8 = m8 or bool(val & 0x20), x8 or bool(val & 0x10)
-        out.append(f"{addr >> 16:02X}:{addr & 0xFFFF:04X}  {pc:06X}  {raw.hex(' '):12s} {mn} {text}".rstrip())
+        note = ""
+        if mn in ("JSR", "JMP") and mode == "abs":  # target is in the current program bank
+            note = f"  ; -> {addr >> 16:02X}{val:04X}"
+        elif mn in ("PLP", "RTI", "XCE"):  # flags come from the stack or E-mode; linear tracking can't know them
+            note = "  ; M/X unknown here, restart with the right --m8/--x8"
+        out.append(f"{addr >> 16:02X}:{addr & 0xFFFF:04X}  {pc:06X}  {raw.hex(' '):12s} {mn} {text}".rstrip() + note)
         addr = (addr & 0xFF0000) | ((addr + size) & 0xFFFF)
     return out
 
 
 def selftest():
-    code = bytes.fromhex("C230 A93412 E220 A912 547E7F 80FE 60")
+    code = bytes.fromhex("C230 A93412 E220 A912 547E7F 80FE 60 203412 28")
     rom = bytearray(0x8000) + code
-    lines = disasm(rom, 0x018000, 6)
+    lines = disasm(rom, 0x018000, 9)
     assert lines[1].endswith("LDA #$1234"), lines[1]
     assert lines[3].endswith("LDA #$12"), lines[3]
     assert lines[4].endswith("MVN $7F,$7E"), lines[4]
     assert lines[5].endswith("BRA $800C"), lines[5]
+    assert lines[7].endswith("JSR $1234  ; -> 011234"), lines[7]
+    assert "M/X unknown" in lines[8], lines[8]
     assert MAPS["hirom"](0xC12345) == 0x012345 and MAPS["lorom"](0x80D960) == 0x5960
     print("selftest ok")
 

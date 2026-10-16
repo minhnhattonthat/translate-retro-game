@@ -6,6 +6,8 @@ Title logos, menu labels, battle banners, name plates and signs are often tiles,
 
 Tour the game with `emu.py` and list every screen whose Japanese did not change in the marker build. For each: screen name, savestate, BG layer or sprite, and a first guess at the source (raw tiles, compressed block, font-drawn into VRAM at runtime). Record the list in `docs/re/graphics.md`.
 
+Screens that only show mid-game are the ones that get missed: chapter and title cards, area-name banners, "To be continued", game over, ending and credits. Warp to each one with the debug tool (one entry per chapter, not only chapter 1) and add it to the list, even if it looks like plain text. `jp_left.py` can't see tiles, so a clean report doesn't cover these.
+
 **Done when** every Japanese-on-screen element from the marker tour is either a known string or a row in that list.
 
 ## Find the source
