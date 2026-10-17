@@ -14,7 +14,7 @@ What to get for each platform, and where. Never download ROMs: the user supplies
 |---|---|---|
 | Python 3.10+ | python.org | Scripts here are stdlib only, except `disasm.py` (capstone). Run with `-X utf8`. |
 | git | git-scm.com | Step 0 installs a pre-commit hook. |
-| The user's ROM / disc dump | the user | Put it in `rom/` (gitignored). Check its hash against No-Intro (cartridges) or Redump (discs) and record it for the README. |
+| The user's ROM / disc dump | the user | Put it in `rom/` (gitignored). Check its hash against No-Intro (cartridges) or Redump (discs) and record it in `rom.sha1` (the build checks it) and the README. |
 
 ## Emulators (headless QA through `emu.py`)
 

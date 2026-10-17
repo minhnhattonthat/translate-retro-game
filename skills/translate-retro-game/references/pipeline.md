@@ -49,7 +49,7 @@ Distilled from eight finished fan translations across SNES, GBA, NDS and PS1. Re
    - Note the text orientation: vertical text, or a handheld game played sideways, changes the whole font and box plan.
 5. **Pointers:** find the tables and the format (16-bit + bank, 24-bit, GBA `0x08000000|off`). Note which code reads them.
 6. **Graphics text:** survey tile-drawn Japanese (`references/graphics.md` §Survey).
-7. Record everything in `docs/re/*.md`, one file per subsystem, with an index line in AGENTS.md/CLAUDE.md.
+7. Record everything in `docs/re/*.md`, one file per subsystem, with an index line in AGENTS.md/CLAUDE.md. Mark each finding **verified** (with how: decoded known string, corrupt-and-boot, breakpoint on the draw path, roundtrip test) or **guess** (with why), and promote a guess before code depends on it.
 8. RE helpers in `$SKILL/scripts/`: `relsearch.py` (relative search), `dis65816.py` (SNES), `disasm.py` (ARM/THUMB/MIPS via capstone), and the Lua probes for ROM-read, DMA and memory watches (`emulator-qa.md` §Hooks). Copy one into `tools/` once you start adapting it.
 
 ## Identity build
