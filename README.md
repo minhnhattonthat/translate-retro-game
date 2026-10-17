@@ -57,6 +57,12 @@ The skill loads on its own when you work on a ROM-hacking or game-translation re
 - The agent never publishes or uploads a release on its own.
 - Releases made with it should disclose AI assistance; the release checklist includes that.
 
+## Support
+
+If you enjoy this skill, you can support my work on Ko-fi:
+
+[![Support me on Ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/minhnhattonthat)
+
 ## License
 
 MIT. See [LICENSE](LICENSE).
