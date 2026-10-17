@@ -23,6 +23,7 @@ How to turn extracted Japanese into reviewed English with parallel agents (subag
    - target register.
 2. **Pilot:** translate one short slice yourself (a prologue, ~10 scripts, one bank), insert it, boot it, and let the user approve it in-game. Turn the approved lines into `docs/style-reference.md`: a voice table per character plus paired JP/EN examples, including one corrected example. A ten-script pilot was enough to become the reference every later agent matched.
 3. **Seed the glossary** from what already exists: an earlier patch's English, the game's item/skill/name tables, official localizations of the series, and the pilot.
+4. **Write `docs/synopsis.md` for a story game:** the plot by chapter, routes and branches, who is who, relationship changes and late reveals (a disguised character, a traitor, a twist on a name). Build it from guides, wikis and a read of the extracted script, and put it on the translator brief's read list. A translator who only sees one batch can't know that the friendly merchant turns out to be the villain, and gives the early lines the wrong tone or gives away the reveal. Guides tell you the order and who is who; the extracted script decides the wording.
 
 ## Batch design
 
@@ -63,7 +64,9 @@ How to turn extracted Japanese into reviewed English with parallel agents (subag
 - glossary violations (a JP term present but its EN form missing; spellings from the "Avoid" column);
 - an ordinal suffix right after a variable (`\[var[^\]]*\](st|nd|rd|th)\b`).
 
-The merge refuses bad batches. The build/lint stays the hard gate. Lines that still overflow go to a dedicated **fit pass** (an agent given the exact check command, iterating until clean, reporting `CUT:` lines for anything dropped).
+The merge refuses bad batches. The build/lint stays the hard gate.
+
+**No bulk rewrites of translated prose without the user's approval.** A regex or script that edits English across many lines (replacing a term, shortening every line over a limit, changing a stock phrase) needs the user to approve the rule, the set of lines it touches and a sample of before/after, first. A change that looks mechanical still changes meaning in free text: a term inside a longer word, a pun, a line that only fits because of the old wording. Lint may *flag* such lines; fixing them goes through translator or fit-pass agents line by line. Rewriting control codes, escapes or serialization doesn't count; that is not prose. Lines that still overflow go to a dedicated **fit pass** (an agent given the exact check command, iterating until clean, reporting `CUT:` lines for anything dropped).
 
 ## Review
 
@@ -93,6 +96,7 @@ Cloning English into another language (Vietnamese on top of English, same engine
 
 - **One table code per precomposed letter+tone.** Check the font cell height first: stacked tone marks need a taller cell than an 8 px font has, and a clipped mark (top of the line buffer) is the classic failure of a patch nobody zoomed into. If the cell can't grow, compose base + mark at draw time (`platform-snes.md` §Engine patching).
 - **Capitals with marks only where the text uses them.** Scan the translation and glossary for capitalised word starts, add the missing glyphs on demand, and make the lint flag any character outside the table.
+- **Two glyph budgets when the engine loads glyphs on demand:** the total set (every distinct letter in the whole script, glossary and names, against code space and ROM storage) and the per-screen set (letters that must be in VRAM at the same time, including those still on screen from the previous page or an open menu behind the box, against the VRAM slots). Lint both: the total from the script, the per-screen set per page plus whatever stays on screen. A page can fit its slots and still corrupt the previous page's letters when slots are reused before that page is gone. With fixed one-glyph-per-code slots the two budgets are the same.
 - **Fold the space into punctuation** (`, ` `. ` `! ` `... ` as single codes) to save a code and a width entry per use; the encoder must take the longest match.
 - **Torture line for the width gate:** include the tallest stack (`Ấ`, `ẳ`, `ỗ`, `Ộ`, `Ự`) on the first and last line of every window type, menus and battle text included, and read a zoomed shot.
 - Keep the original line as a comment or `jp` field beside each translation. Human-written scripts still carry control-code typos (`num <$02>` for `<num><$02>`), so the control-code check is not optional.

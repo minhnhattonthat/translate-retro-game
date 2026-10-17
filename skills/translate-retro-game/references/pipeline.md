@@ -38,14 +38,14 @@ Distilled from eight finished fan translations across SNES, GBA, NDS and PS1. Re
    - community tools for the game or engine (decompressors, table files, disassemblies);
    - partial or foreign-language patches and their notes (a Korean or Spanish patch often documents formats).
    - a patch that ships its source (`.asm`, script, `Data/*.bin`) is a free RE map: `grep -nE '^\s*(org|incbin)'` lists every hook site and replaced graphic, usually labelled. Clone it into a scratch dir and don't run its binaries. Verify each address in the emulator before relying on it (revision and copier-header offsets differ), then copy the useful ones into `docs/re/`.
-2. **Header and map:** mapping mode, size, checksum, free space (runs of 0x00/0xFF at bank ends).
+2. **Header and map:** mapping mode, size, checksum, free-space *candidates* (runs of 0x00/0xFF at bank ends). A run of 0x00 or 0xFF is a candidate, not free space: zero-filled ranges have turned out to hold live tables, and code with no direct calls was reached through a pointer. Before using one, fill it with a trap byte (0xFF, or an opcode that crashes visibly) and tour the game, and search code for addresses that point into it. A tour with no hit covers only the routes it took. Space you add past the original ROM end, in banks the mapper reaches, is free.
 3. **Compression:** look for game LZ variants and BIOS LZ77/Huffman (GBA). Write a decompressor plus a recompressor, and test the pair byte-for-byte on real blocks.
 4. **Text encoding:**
    - find a known on-screen string by relative search (the difference pattern between kana);
    - or log the string-draw routine in the emulator (`references/emulator-qa.md` §Hooks);
    - build `tbl/jp.tbl`;
    - list control codes with their argument counts. A wrong argument count desyncs everything after it.
-   - **Confirm the font by hooking the draw call**, not by how glyphs look: games carry several fonts and tables. A table built by eye needs a cross-check against a decoded known string; after fixing it, regenerate every `jp` field from the ROM.
+   - **Confirm the font by hooking the draw call**, not by how glyphs look: games carry several fonts and tables. A table built by eye needs a cross-check against a decoded known string; after fixing it, regenerate every `jp` field from the ROM, diff the old and new `jp` per id, and re-queue every changed id that already has a translation: those were written from the wrong text.
    - Note the text orientation: vertical text, or a handheld game played sideways, changes the whole font and box plan.
 5. **Pointers:** find the tables and the format (16-bit + bank, 24-bit, GBA `0x08000000|off`). Note which code reads them.
 6. **Graphics text:** survey tile-drawn Japanese (`references/graphics.md` §Survey).
@@ -116,6 +116,13 @@ Wire all of these into the one-command check (Step 0) so the pre-commit hook run
 - **Keep output quiet.** Print errors and a count, and roll known-OK warnings into one summary line. A check that printed 2,476 warnings got grepped away by the agent, real ones included.
 - **ROM-level checks:**
   - `scripts/romdiff.py` with an allowed-ranges file: nothing written outside text banks, pointer slots and free space. This catches writes that wipe flag bytes or graphics.
+  - **Log every write with the bytes it expects to replace** and pass the log as `romdiff.py ORIG NEW --writes build/writes.txt`. It then also fails when the original doesn't hold the expected bytes (wrong revision, stale address, a shift computed on an already-patched buffer), when a later write overwrote an earlier one, when two writes overlap, and when a changed byte has no write behind it. Route every write through one function, checksum and pointer fixes included:
+    ```python
+    def put(rom, off, data, by, orig=ORIG, log=WRITES):   # ORIG: the clean original's bytes, never the work buffer
+        log.append("%X %s %s %s" % (off, orig[off:off + len(data)].ljust(len(data), b"\xff").hex(), data.hex(), by))
+        rom[off:off + len(data)] = data
+    ```
+    For a fixed hook site, also assert the original bytes before writing (`assert ORIG[off:off+4] == bytes.fromhex("...")`), so a different revision fails at build time rather than in game.
   - Free-space overflow raises an error instead of silently wrapping.
   - Graphics chunks stay inside the windows the code can reach.
 - **Leftover Japanese:**
@@ -138,6 +145,7 @@ Check for these before handing a build over:
 - A fix applied to only one of two duplicate justify routines ("Sa ve").
 - A moved string kept one stale pointer: strings can have several (MIPS `lui`/`addiu` pairs, ARM literal pools, a second table). Find all before relocating.
 - A player-entered or renamed name broke after save → reload. Test the round trip for any name the game saves.
+- Name entry: the letter grid and the confirmed name can come from different assets (a pre-rendered grid image, the font for the name). Changing one left the other Japanese or mismatched. Check the grid, editing, the confirmed name, its later redisplay in dialogue and menus, and the default name when the player confirms an empty entry.
 - Headers and labels sat off-centre, and grey-out (disabled item) spans covered the wrong letters: both come from per-label tables sized for Japanese. Re-centre and regenerate the span tables from the English widths.
 - Timers, counters and other digits the code draws were "translated". Keep native digits the code writes; translate only the text around them.
 

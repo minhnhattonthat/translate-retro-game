@@ -73,7 +73,7 @@ Each phase ends on a checkable condition. Do the phases in order. Skipping the i
 
 Platform notes are loaded only for the platform at hand: `references/platform-snes.md`, `platform-gba.md`, `platform-nds.md`, `platform-ps1.md`, `platform-psp.md`.
 
-When the user reports an in-game bug, reproduce it with `emu.py` first, from their savestate if they gave one, else by warping there with the debug tool, and save the shot. If the debug tool can't reach the scene, add it to the scene list rather than asking the user to play there. Then fix it, re-run the same route, and compare. Then grep for every other copy of the same text or code, because games often store a string two or three times.
+When the user reports an in-game bug, reproduce it with `emu.py` first, from their savestate if they gave one, else by warping there with the debug tool, and save the shot. If the debug tool can't reach the scene, add it to the scene list rather than asking the user to play there. Then fix it, re-run the same route, and compare. Then grep for every other copy of the same text or code, because games often store a string two or three times. When the first fix doesn't hold, or you are about to add a second special case for the same thing, scan `references/cases.md` by symptom before guessing again.
 
 ## Tools (`$SKILL/scripts/`, tested; each has `--help`)
 
@@ -90,7 +90,7 @@ When the user reports an in-game bug, reproduce it with `emu.py` first, from the
 | `tiles.py render\|import\|map`, `vramfind.py` | Graphics text: render tiles and BG maps from dumps, re-import edited PNGs, find VRAM tiles in the ROM (`references/graphics.md`) |
 | `iso9660.py`, `cpk.py`, `gim.py`, `sfo.py`, `showgim.py`, `typeset.py`, `jpscan.py` | PSP / 3D-era image work: ISO list/extract/patch, CRI CPK read/rebuild, GIM texture decode/encode, PARAM.SFO, side-by-side image sheets, English text rendering (Pillow), Japanese run scan in binaries (`references/platform-psp.md`) |
 | `bps.py make ORIG BUILT OUT.bps` / `apply` / `snes-checksum` | Patch with built-in re-apply check; SNES header checksum |
-| `romdiff.py ORIG NEW RANGES..` | Fails on any byte changed outside allowed ranges |
+| `romdiff.py ORIG NEW RANGES.. [--writes LOG]` | Fails on any byte changed outside allowed ranges; with the build's write log, also on wrong original bytes, overwritten or overlapping writes (`references/pipeline.md` §Checks) |
 | `tbl.py` | Table codec with control codes, roundtrip-exact; import it in extract/insert code |
 | `hooks/pre-commit` (any agent), `hooks/guard_bash.py` (Claude Code) | The guardrails from Step 0 |
 

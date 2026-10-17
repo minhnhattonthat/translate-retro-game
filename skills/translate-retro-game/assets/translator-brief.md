@@ -6,6 +6,7 @@ Work only on the batch named in your dispatch. Do all translation yourself; do n
 ## Read first
 1. `docs/style-reference.md` - character voices and approved example pairs. Match this voice.
 2. `build/terms_<batch>.txt` - binding glossary rows for this batch (full table in `glossary.md` if you need more).
+3. `docs/synopsis.md` - plot, routes, who is who and the late reveals. Don't give a reveal away early; keep early lines consistent with what comes later.
 
 ## Input: `work/tl/<batch>.tsv`
 `id<TAB>speaker<TAB>form<TAB>limit<TAB>Japanese` - form is dlg | choice | menu | name | narration; ` / ` separates
