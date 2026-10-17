@@ -1,6 +1,6 @@
 {
   "name": "translate-retro-game",
-  "description": "Playbook and tested tools for fan-translating Japanese retro games (SNES, GBA, NDS, PS1) into English: recon, extraction, insertion, batch translation with subagents, headless emulator QA and patch releases.",
+  "description": "Playbook and tested tools for fan-translating Japanese retro games (SNES, GBA, NDS, PS1, PSP) into English: recon, extraction, insertion, batch translation with subagents, headless emulator QA and patch releases.",
   "author": {
     "name": "minhnhattonthat",
     "url": "https://github.com/minhnhattonthat"
@@ -8,6 +8,6 @@
   "homepage": "https://github.com/minhnhattonthat/translate-retro-game",
   "repository": "https://github.com/minhnhattonthat/translate-retro-game",
   "license": "MIT",
-  "keywords": ["rom-hacking", "translation", "fan-translation", "snes", "gba", "nds", "ps1", "emulator", "qa"],
+  "keywords": ["rom-hacking", "translation", "fan-translation", "snes", "gba", "nds", "ps1", "psp", "emulator", "qa"],
   "skills": "./skills"
 }
