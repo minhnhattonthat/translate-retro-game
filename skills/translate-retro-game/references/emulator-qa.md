@@ -20,7 +20,7 @@ python -X utf8 $SKILL/scripts/emu.py rom/game.sfc --out work/qa/warp --script to
 
 - **`tools/debug/scenes.*`:** the scene list: name → the RAM writes that put the game there (map/room id, position, chapter and story flags, party, inventory, money, event id), plus how to trigger the load (a door, menu exit, death, a soft reset). Cover every chapter, every menu, every shop and battle type, every ending and the credits. Grow it whenever a bug report names a place it can't reach. Chapter entries must enter the way the game does (story select, or setting the flags then finishing the previous chapter's last event), so the chapter card and intro play. A warp that swaps in the chapter's first script skips the card, and QA then never sees it.
 - **`tools/debug/warp.lua`:** reads `SCENE`, waits for a safe screen (title or field, tested by a RAM flag, not a frame count), applies the writes from `L.on_frame` and triggers the load. Same file, opt-in globals: `GOD` (pin HP or a timer every frame so `--mash` routes survive fights), `NOENC` (no random encounters), `FAST` (instant text, max stats, all items).
-- **Find the values** with recon tools: `ramsearch.py` over `ramdump.lua` dumps for ids and flags (change rooms, note what changes), `watch.lua` to see who reads them, the disassembly for the event-flag array. Check [TCRF](https://tcrf.net) and GameFAQs/cheat databases first: many Japanese games keep a debug menu, level select or sound test, and existing cheat codes often are the RAM addresses you need. A debug menu re-enabled by a ROM patch goes in a debug build only, never the release.
+- **Find the values** with recon tools: `ramsearch.py` over `ramdump.lua` dumps for ids and flags (change rooms, note what changes), `watch.lua` to see who reads them, the disassembly for the event-flag array. Check GameFAQs/cheat databases first (never tcrf.net: see SKILL.md ground rules): many Japanese games keep a debug menu, level select or sound test, and existing cheat codes often are the RAM addresses you need. A debug menu re-enabled by a ROM patch goes in a debug build only, never the release.
 - **No Lua (PPSSPP):** the same scene list drives a Python script that imports `psp.py` and pokes RAM over its WebSocket (`memory.write`), or writes CWCheat codes to `memstick/PSP/Cheats/<GAME_ID>.ini` with cheats enabled.
 - **Save the results:** after each warp, `--state-out work/states/<scene>.<ext>`; regenerate the whole library from the scene list after engine, font or graphics changes (`tools/debug/` should have a one-command "regen all states").
 - **Done when** every scene-list entry reaches its scene from a cold boot with a shot to prove it. List the command in the instructions file so a fresh session uses it instead of asking the user for saves.
@@ -109,6 +109,15 @@ Pair it with `--mash` and a long `--frames` to sweep menus and dialogue cheaply.
 - Read the contact sheet (`--sheet`, or `sheet.py DIR --changed 0.02 --div 2`), not individual frames. `--changed` drops frames that didn't change, and `--div 1` keeps full size for reading small text.
 - Look at a single full-size frame only when a sheet tile shows a problem.
 - Generate shots with a script, then open the PNG only **after** that command finished. Opening it in the same parallel batch of tool calls fails when the file doesn't exist yet; this happened about 20 times in one project.
+
+## Visual QA (phase 8: reviewers read the sheets, a gate counts them)
+
+The implementer has the most context pressure, so it skims: one project looked at 15 of 417 tour sheets and called QA done. Read-only reviewer subagents read the sheets instead, and `qa_gate.py` makes "done" countable.
+
+1. After each tour: `qa_gate.py init work/qa/manifest.tsv work/qa/tour` (append-only; re-run after new tours).
+2. `qa_gate.py todo work/qa/manifest.tsv work/qa/verdicts --size 30` prints chunks. Dispatch one subagent per chunk, up to 4 at a time: "Read every sheet in this list (paths below), zoomed where text is small. For each, judge: Japanese still visible, text overflowing or clipped by a frame, garbage tiles, wrong or missing glyphs, broken line breaks, an empty box where text belongs. Write `work/qa/verdicts/c<NNN>.tsv` with your file-write tool, one line per sheet: `id<TAB>ok|issue<TAB>what and where`."
+3. Fix each `issue`, re-run its route, look at the new sheet, and add `id<TAB>fixed<TAB>note` in a newer file (`verdicts/recheck_<n>.tsv`): later files override earlier ones.
+4. `qa_gate.py check work/qa/manifest.tsv work/qa/verdicts` exits 0 only when every sheet is `ok` or `fixed`. Call it from the repo's release script.
 
 ## Per-emulator facts and gotchas
 

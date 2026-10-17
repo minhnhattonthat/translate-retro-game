@@ -25,6 +25,9 @@
              reach; replaces the --gba-ptrs word scan. Dump it from your extractor's pointer list.
 --known FILE runs to stop reporting, one hex offset per line (anything after it is a note): Japanese you keep on
              purpose, kana order tables, dead arrays you checked. A run is dropped if a listed offset falls in it.
+--dbcs       (with --sjis --slots) the engine reads every byte >= 0x80 as the lead of a 2-byte code: walk each
+             pointed-to string from its start in those steps instead of scanning byte by byte, so English packed
+             into private 2-byte codes (build-time VWF cells) is not misread as kanji out of step.
 Exit 1 when anything is found, 0 when clean, so it can gate a release.
 """
 import argparse, bisect, re, struct, sys
@@ -161,6 +164,30 @@ def scan(b, char_at, lo, hi, min_chars):
     return runs
 
 
+def scan_dbcs(b, char_at, reach, lo, hi, min_chars):
+    """--dbcs with --slots: walk each pointed-to string from its start, 2 bytes per byte >= 0x80, so private
+    2-byte codes (an English VWF packed into unused lead bytes) are never read out of step as kanji."""
+    runs = set()
+    for t, end, _ in reach:
+        if not lo <= t < hi:
+            continue
+        i, start, count = t, None, 0
+        while i <= end:
+            jp = i < end and b[i] >= 0x80 and char_at(b, i) == 2
+            if jp:
+                if start is None:
+                    start, count = i, 0
+                count += 1
+            elif start is not None:
+                if count >= min_chars:
+                    runs.add((start, i))
+                start = None
+            if i == end:
+                break
+            i += 2 if b[i] >= 0x80 else 1
+    return sorted(runs)
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("built")
@@ -176,6 +203,7 @@ def main(argv=None):
     ap.add_argument("--gba-ptrs", action="store_true")
     ap.add_argument("--slots")
     ap.add_argument("--known")
+    ap.add_argument("--dbcs", action="store_true")
     ap.add_argument("--rows", action="store_true")
     ap.add_argument("--le16", action="store_true")
     a = ap.parse_args(argv)
@@ -201,7 +229,9 @@ def main(argv=None):
     ranges = [tuple(int(x, 16) for x in r.split("-")) for r in a.range] or [(0, len(b) - 1)]
     found, skipped = [], 0
     for lo, hi in ranges:
-        for s, e in scan(b, char_at, lo, min(hi + 1, len(b)), a.min):
+        hi = min(hi + 1, len(b))
+        runs = scan_dbcs(b, char_at, reach, lo, hi, a.min) if a.dbcs and reach else scan(b, char_at, lo, hi, a.min)
+        for s, e in runs:
             if orig is not None and orig[s:e] != b[s:e]:
                 continue
             if not a.kanji_runs and not text_like(decode(b[s:e])):
@@ -238,6 +268,10 @@ def _selftest():
     p = gba_ptrs(rom)
     assert p == [(0x10, 0)] and refs(p, 0x0E, 0x12) == [0] and refs(p, 0x11, 0x14) == []
     assert pointed([5], 3, 6) and not pointed([5], 6, 9)
+    # private 2-byte codes whose trail+next lead look like kanji out of step: byte scan misreads, --dbcs does not
+    priv = b"\xa1\xe7\xb8\x82\xcf\xe8\xb6\x9a\xae\x5a\x00" + "こんにちは".encode("shift_jis") + b"\x00"
+    reach = [(0, 10, 0), (11, 21, 4)]
+    assert scan_dbcs(priv, sjis_char, reach, 0, len(priv), 2) == [(11, 21)]
     import os, tempfile
     with tempfile.TemporaryDirectory() as d:
         open(os.path.join(d, "t.tbl"), "w", encoding="utf-8").write("# rows\n0A0=りるAれ\n")

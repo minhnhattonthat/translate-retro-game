@@ -351,6 +351,7 @@ def run(a):
         extra["startupinfo"] = si
     p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8",
                          errors="replace", cwd=cwd, **extra)  # stderr=DEVNULL made runs ~4x slower
+    print(f"emulator pid {p.pid} (to stop only this run: taskkill /T /F /PID {p.pid})", flush=True)
     if os.name == "nt" and system == "psx" and not a.show:  # (other emulators: untested with a minimized window)
         keep_minimized(p, os.path.dirname(exe))
     try:

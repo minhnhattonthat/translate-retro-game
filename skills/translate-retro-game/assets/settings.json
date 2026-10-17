@@ -3,6 +3,9 @@
     "PYTHONUTF8": "1",
     "PYTHONIOENCODING": "utf-8"
   },
+  "permissions": {
+    "deny": ["WebFetch(domain:tcrf.net)"]
+  },
   "hooks": {
     "PreToolUse": [
       {
