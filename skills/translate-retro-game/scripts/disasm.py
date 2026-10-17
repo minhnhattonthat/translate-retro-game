@@ -6,7 +6,8 @@
 
 FILE is a code image: a .gba ROM (base 08000000, Thumb by default), a PS-X EXE (base and MIPS from its header),
 or a raw binary with --base = the address of file offset 0 (NDS arm9.bin: 02000000; PS1 overlay: its RAM address).
-ADDR/TARGET are hex addresses; values below --base are taken as file offsets.
+ADDR/TARGET are hex addresses; a value below --base and below the file size is taken as a file offset, so an
+overlay (base 021F0760) can still xref calls into arm9 (0204C718).
 dis annotates ARM/Thumb literal-pool loads with the loaded word.
 xref finds what points at TARGET. ARM/Thumb: literal-pool words (TARGET or TARGET|1) and BL/BLX calls.
 MIPS: pointer words, jal, and lui + addiu/ori/load/store pairs that build TARGET (within 16 instructions). A string
@@ -37,10 +38,14 @@ def load(path, base=None, arch=None):
     return data, base or 0, arch or "arm"
 
 
+def as_addr(value, base, data):
+    return value + base if value < base and value < len(data) else value
+
+
 def dis(data, base, arch, addr, count):
     md = capstone.Cs(*MODES[arch])
     md.skipdata = True  # keep going through data words
-    off = addr - base if addr >= base else addr
+    off = as_addr(addr, base, data) - base
     width = 2 if arch == "thumb" else 4
     out = []
     for ins in md.disasm(data[off:off + count * width * 2], base + off):
@@ -122,6 +127,10 @@ def selftest():
     assert ("ptr", 8) in xref_arm(thumb, 0x08000000, 0x08012344)  # Thumb pointer = target | 1
     bl = bytes.fromhex("00F0 02F8")  # bl +4 -> 0x08000008
     assert xref_arm(bl + bytes(8), 0x08000000, 0x08000008) == [("thumb bl", 0)]
+    ov, arm9_fn = 0x021F0760, 0x0204C718  # NDS overlay calling down into arm9: target below base, not an offset
+    blw = struct.pack("<I", 0xEB000000 | ((arm9_fn - ov - 8) >> 2 & 0xFFFFFF)) + bytes(8)
+    assert xref_arm(blw, ov, as_addr(arm9_fn, ov, blw)) == [("bl", 0)]
+    assert as_addr(0x4, ov, blw) == ov + 0x4
     print("selftest ok")
 
 
@@ -141,7 +150,7 @@ def main():
     if a.cmd == "dis":
         print("\n".join(dis(data, base, arch, a.addr, a.count)))
         return
-    target = a.addr if a.addr >= base else a.addr + base
+    target = as_addr(a.addr, base, data)
     hits = xref_mips(data, base, target) if arch == "mips" else xref_arm(data, base, target)
     for kind, off in hits:
         print("%-28s file %06X  addr %08X" % (kind, off, base + off))

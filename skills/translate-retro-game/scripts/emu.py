@@ -298,8 +298,13 @@ def run(a):
     head = "\n".join(f"{k} = {lua_value(v)}" for k, v in g.items() if v is not None)
     head += "".join(f"\n{kv.split('=', 1)[0].strip()} = {kv.split('=', 1)[1]}" for kv in a.var or [])
     parts = [head, open(os.path.join(HERE, "lua", LIB["snes" if mesen else system]), encoding="utf-8").read()]
-    for s in a.script or []:  # wrapped so a top-level error (e.g. a probe's assert) exits 2 instead of vanishing
-        parts.append("L.safe(function()\n" + open(s, encoding="utf-8").read() + "\nend)()")
+    for s in a.script or []:  # compiled at run time inside L.safe: a syntax or top-level error exits 2, not a timeout
+        src = open(s, encoding="utf-8").read()
+        eq = "="
+        while f"]{eq}]" in src:
+            eq += "="
+        parts.append(f"L.safe(function() local f, e = (loadstring or load)([{eq}[\n{src}]{eq}], "
+                     f"{lua_value('@' + os.path.basename(s))}); if not f then error(e, 0) end; f() end)()")
     lua = os.path.join(out, f"{stem}.lua" if system == "nds" and not dsfork else "_run.lua")
     with open(lua, "w", encoding="utf-8") as f:
         f.write("\n".join(parts) + "\n")
