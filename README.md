@@ -19,7 +19,7 @@ It is a playbook plus tested tools, distilled from eight finished fan translatio
 
 - **ROM tools** (Python, stdlib only): leftover-Japanese scanner (`jp_left.py`, with pointer-reachability modes), BPS patch maker with re-apply verification (`bps.py`), out-of-range write checker (`romdiff.py`), table codec with control codes (`tbl.py`), contact sheets (`sheet.py`), and a visual-QA gate (`qa_gate.py`) that fails the release until read-only reviewer subagents have passed every contact sheet from the QA tour.
 - **Reverse-engineering and graphics tools**: relative search, 65816 and (with capstone) ARM/THUMB/MIPS disassembly with xrefs, cheat-style RAM search, and a workflow for text drawn as graphics: render tiles and BG maps from VRAM dumps, find their source in the ROM, re-import edited PNGs at fixed palette indices.
-- **Guardrails**: a git pre-commit hook that runs the repo's check and refuses ROM files (any agent), plus, for Claude Code, a Bash/PowerShell hook that blocks the shell edits that kept corrupting source files (`sed -i`, heredocs with escapes, `python -c` replace scripts, `Set-Content` on source, `tests | tail && git commit`), and a settings deny rule for tcrf.net, whose pages carried prompt injections aimed at agents. When one session drives several game repos, install the hook in the session root: Claude Code loads hooks only from there.
+- **Guardrails**: a git pre-commit hook that runs the repo's check and refuses ROM files (any agent), plus, for Claude Code, a Bash/PowerShell hook that blocks the shell edits that kept corrupting source files (`sed -i`, heredocs with escapes, `python -c` replace scripts, `Set-Content` on source, `tests | tail && git commit`), and a settings deny rule for tcrf.net, whose pages carried prompt injections aimed at agents. The plugin install ships the hook itself; with a copied skill, install it in the session root when one session drives several game repos (Claude Code loads settings hooks only from there).
 - **Translation templates**: translator and reviewer briefs for subagents, a glossary template, and the policy questions to settle with you once per project (honorifics, name order, romanization, credits).
 - **Platform notes** for SNES, GBA, NDS, PS1 and PSP: mapping, pointers, compression, fonts, disc rebuilds, release formats.
 
@@ -33,11 +33,24 @@ npx skills add minhnhattonthat/translate-retro-game
 
 It asks which agents to install for; add `-g` to install globally instead of into the current project, or `-a <agent>` to pick one.
 
-Claude Code, as a plugin (gets updates through `/plugin`):
+Claude Code, as a plugin (recommended: ships the guard hook, and every push reaches you with auto-update on):
 
 ```
 /plugin marketplace add minhnhattonthat/translate-retro-game
 /plugin install translate-retro-game@retro-translation
+```
+
+For a game repo, commit this to its `.claude/settings.json` instead, so every clone gets the plugin and its updates
+([fan-translation-template](https://github.com/minhnhattonthat/fan-translation-template) has it):
+
+```json
+"extraKnownMarketplaces": {
+  "retro-translation": {
+    "source": { "source": "github", "repo": "minhnhattonthat/translate-retro-game" },
+    "autoUpdate": true
+  }
+},
+"enabledPlugins": { "translate-retro-game@retro-translation": true }
 ```
 
 Manual: copy `skills/translate-retro-game/` into your agent's skills folder (e.g. `~/.claude/skills/`).

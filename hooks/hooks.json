@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"${CLAUDE_PLUGIN_ROOT}/skills/translate-retro-game/scripts/hooks/guard_bash.py\""
+          }
+        ]
+      }
+    ]
+  }
+}
