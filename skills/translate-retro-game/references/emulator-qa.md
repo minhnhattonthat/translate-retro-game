@@ -8,7 +8,8 @@
 2. **Smoke:** `emu.py build/game.sfc --out work/qa/smoke --route tools/routes/boot.txt --smoke`. This fails on a flat-colour final frame (black screen, hang). Run it after every build you hand over.
 3. **Targeted routes:** one route per changed scene or menu. Start from a savestate near the scene (made by the debug tool, below), shoot every 30–120 frames, add `--sheet`, then read the **one** sheet PNG.
 4. **Broad tour:** only after layout/wrap/engine changes. Keep a baseline (page counts or band-diff hashes per scene) and compare against it. Without a baseline, a wrap change that broke 76 scenes was found only by a full re-tour (~1 h per tour).
-5. **The user's playtest** comes last, and only for feel and pacing.
+5. **Agent playtest:** a playtester subagent plays a stretch turn by turn and reports what a player trips over (§Agent playtest).
+6. **The user's playtest** comes last, and only for feel and pacing.
 
 ## Debug tool (phase 2, one per game)
 
@@ -58,7 +59,7 @@ python -X utf8 $SKILL/scripts/emu.py ROM --out DIR [--route FILE | --route-str "
   - **States keep the old VRAM and code:** after font, graphics or code edits, regenerate them from a cold boot. On games that load from a file table (disc, NDS filesystem), a state can also hang after a rebuild moves files; regenerate it rather than debugging the build.
   - User-made states (e.g. `bug_menu.mss`) are the fastest reproduction. Ask for them when the user reports a bug.
 - **Exit codes:** 0 ok, 2 Lua error (message printed), 3 smoke failed, 124 timeout. Both emulators swallow Lua errors silently; the harness pcall-wraps every callback to surface them.
-- **Emulator lookup:** `--emu`, then `tools/**/` in this repo (each project builds its own, `setup.md`), then env `MESEN`/`DESMUME`/`PCSX_REDUX`/`PPSSPP`. Other repos are never searched.
+- **Emulator lookup:** `--emu`, then `tools/**/` in this repo (each project builds its own, `setup.md`), then env `MESEN`/`DESMUME`/`PCSX_REDUX`/`PPSSPP_HEADLESS`. Other repos are never searched.
 
 ## Hooks (`--script`)
 
@@ -119,6 +120,21 @@ The implementer has the most context pressure, so it skims: one project looked a
 3. Fix each `issue`, re-run its route, look at the new sheet, and add `id<TAB>fixed<TAB>note` in a newer file (`verdicts/recheck_<n>.tsv`): later files override earlier ones.
 4. `qa_gate.py check work/qa/manifest.tsv work/qa/verdicts` exits 0 only when every sheet is `ok` or `fixed`. Call it from the repo's release script.
 
+## Agent playtest (a subagent plays turn by turn)
+
+Routes and tours check screens you already know about. A playtester subagent finds the rest: a choice whose answer doesn't fit, a menu label that lies, a place a player gets stuck. Dispatch it with `assets/playtester-brief.md` (copy to `docs/playtester-brief.md` and fill in the game's controls as they are learned): ROM, its own session dir, a goal ("title to the end of the first battle"), a turn budget.
+
+```
+python -X utf8 $SKILL/scripts/play.py SESSION --rom build/game.gba --wait 900   # cold boot (or --state S / --sav F)
+python -X utf8 $SKILL/scripts/play.py SESSION a down "right*40" [--gap 20] [--wait 60] [--every 30]
+python -X utf8 $SKILL/scripts/play.py SESSION --back 2                           # undo
+```
+
+- Each call is one emu.py run from the last step's savestate: presses, then waits, then one shot (x2 for screens up to 320 px wide) as `SESSION/NNNN.png`, state `NNNN.<ext>`, presses in `log.tsv`. `--every N` prints sheets of the step instead, 12 frames each at x2 (typed text, fades). ~5 s per call on GBA. Budget: 60 calls covered a prologue and no more in each of three games, so start deeper goals from `--state`. A 60-call budget got one agent from cold boot through a 6,000-frame intro and character setup to the first stage select (Monster Guardians), and found leftover-variable, wrap and font bugs the tours had missed.
+- Run it from the game repo (emu.py finds the emulator under `tools/`). One session dir per playtester; parallel playtesters need separate dirs.
+- **Filing:** save the agent's report to a file, then `play.py SESSION --export report.md` (from the game repo): its `- [ ] step NNNN - ...` lines go into `docs/bugs.md` (one rolling checklist per game, under a dated heading with the ROM sha1), and the cited steps' shots and states go to `work/playtest/<session>/`. Each `NNNN.<ext>` is that bug's repro state. Tick `- [x] (fixed in <build>)` after re-checking from it; the next playtester reads `docs/bugs.md` first and skips open bugs. Keep the states of a good run as savestates for routes.
+- Tested on GBA, SNES (Mesen), NDS (DeSmuME QA fork; play.py idles 90 frames after each state load, the JIT grey-screen window), PS1 (PCSX-Redux, ~2 s per call) and PSP (PPSSPPHeadless, ~1.5 s per call). PS1: a game that stays black on OpenBIOS needs `--bios` on the new session (kept in `SESSION/bios.txt`). PSP: each session gets its own memstick (`SESSION/memstick`), so in-game saves never touch the shared one.
+
 ## Per-emulator facts and gotchas
 
 **Mesen / MesenCE (SNES, GBA):**
@@ -150,13 +166,11 @@ The implementer has the most context pressure, so it skims: one project looked a
 - Breakpoint callbacks must return `false` or the emulator pauses; `L.on_exec`/`on_read`/`on_write` do this for you.
 
 **PPSSPP (PSP; Windows):**
-- `emu.py game.iso` (an ISO containing `PSP_GAME`, or a `.cso`) hands over to `psp.py`: it starts `PPSSPPWindows64.exe --memstick=<exe dir>/memstick --debugger=<free port>`, waits for the game, and **hides the window**, with audio off (`[Sound] Enable = False` written to the memstick's `ppsspp.ini` each run; `--sound` keeps it) (`ShowWindow(SW_HIDE)`; the game keeps running and `--emu-arg=-d` adds debug logs to `<out>/ppsspp.log`).
-- Control is PPSSPP's WebSocket API (`ws://127.0.0.1:PORT/debugger`, stdlib client in `psp.py`): `cpu.status` (`us` = emulated microseconds, frame = `us / 16667`), `input.buttons.send {buttons: {cross: true, ...}}` (names: `cross circle square triangle start select up down left right ltrigger rtrigger`; `l`/`r` are rejected), `gpu.buffer.screenshot` (needs the CPU stepping: `cpu.stepping` then `cpu.resume`; returns a PNG data URI), `memory.read {address,size}` (base64; user RAM starts at 0x08800000), `hle.module.list`, `cpu.getAllRegs`, breakpoints, `game.reset`. There is **no savestate call**: `--save-state` sends F2 with real key events (needs the window shown for ~2 s; the driver hides it again), `--state-in` is PPSSPP's `--state=FILE`.
-- Screenshots are the full window render (1440×816 at the default 3x scale), PNG. A green "Debugger web server running" toast overlays the first seconds and "State saved/loaded" toasts appear for ~2 s: ignore them or start shots later.
-- Speed: real time by default (2,000 frames ≈ 35 s). `--fast` holds Tab (≈17x: 16,000 frames in 11 s) with real key events, so it grabs the keyboard focus while it runs. Loading a state at the scene under test skips the boot and menus (a run from a state starts in ~3 s).
+- `emu.py game.iso` (an ISO containing `PSP_GAME`, or a `.cso`) hands over to `psp.py`, which runs **PPSSPPHeadless** from the QA fork (github.com/minhnhattonthat/ppsspp, branch `agent-qa`, `QA-FORK.md`). **One install per machine**, in `%LOCALAPPDATA%\translate-retro-game\ppsspp-headless\` (`fetch_emu.py ppsspp-headless` puts it there; `--emu` or env `PPSSPP_HEADLESS` override): its debugger listens on a port, and Windows Firewall asks once per exe path, so a copy in each repo's `tools/` would ask again in each. Command: `PPSSPPHeadless --memstick=DIR --debugger=PORT --ppge GAME.iso`. No window, console or dialog, no audio, nothing needs focus; parallel runs work. Its stdout/stderr go to `<out>/ppsspp.log`. The stock release zips have no headless exe, and stock headless draws the PSP system dialogs (save/load prompts) as empty boxes: `--ppge` is the fork's one change.
+- Control is PPSSPP's WebSocket API (`ws://127.0.0.1:PORT/debugger`, stdlib client in `psp.py`). Headless stops at the entry point; the driver runs it with `cpu.runUntilTime {us}` to each press edge and shot and waits for `cpu.stepping`, so a route lands on the same frames every run, as fast as the host allows (a 4,952-frame route to a song: 16 s; a play.py step: ~1.5 s). Also used: `input.buttons.send {buttons: {cross: true, ...}}` (names: `cross circle square triangle start select up down left right ltrigger rtrigger`; `l`/`r` are rejected), `gpu.buffer.screenshot` (480x272 PNG, no OSD), `game.state.load/save {path, wait: true}` (`--state-in/--state-out`), `memory.read {address,size}` (base64; user RAM starts at 0x08800000), `hle.module.list`, `cpu.getAllRegs`, breakpoints. These calls need PPSSPP master of 2026-10-19 or later. Software rendering by default; `--emu-arg=--graphics=vulkan` for the GPU path.
 - Routes: same format as the other systems. Many Japanese games map OK to **circle**. A route that walks menus is fragile: after the first walk, save a state at the screen you test and start there.
-- Saves and settings live in `<exe dir>/memstick/`; a game that offers "create save data?" shows its prompt only while `PSP/SAVEDATA` is empty (`--clean-saves`). `memstick/PSP/SYSTEM/ppsspp.ini` can be edited between runs (the emulator rewrites it on exit).
-- Not found, so do not look: a Lua API, a headless build in the standard zip, a savestate/screenshot CLI flag, a way to keep running at speed without focus.
+- **In-game saves are per test:** each run gets a fresh memstick in `<out>/memstick` with no saves (a new console), so a route that creates save data creates it every run and no run sees another's saves. `--sav DIR` seeds it with a save folder (`.../PSP/SAVEDATA/<ID>DATA00`) or a whole `SAVEDATA` folder: keep the ones a test needs in the repo (e.g. `tests/saves/after-chapter1/`). `--memstick DIR` keeps one memstick across runs instead (play.py gives each session `SESSION/memstick`, seeded by `--sav` on the new session). A game that offers "create save data?" shows its prompt only while `PSP/SAVEDATA` is empty.
+- The windowed app (`PPSSPPWindows64.exe`) is for people: playing, and the EBOOT dump (`platform-psp.md`). Driving it for QA needs its window in the foreground for hotkeys (keys are raw input only), shows OSD toasts in every screenshot and runs in real time.
 
 
 ## Record a playthrough once, replay it after every build (PS1 / PCSX-Redux)

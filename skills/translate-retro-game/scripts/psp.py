@@ -1,21 +1,22 @@
-"""PSP QA driver for emu.py: boots a PSP .iso/.cso in PPSSPP (window hidden), plays a scripted route over PPSSPP's WebSocket
-debugger API (`--debugger PORT`), takes screenshots and exits with a real code. Windows only (window hiding, key events).
+"""PSP QA driver for emu.py: boots a PSP .iso/.cso in PPSSPPHeadless (no window), plays a scripted route over PPSSPP's
+WebSocket debugger API (`--debugger PORT`), takes screenshots and exits with a real code.
 
     python psp.py GAME.iso --out DIR [--route FILE | --route-str "600 -;3 cross;120 -"] [--frames N] [--shots 300,900]
-                  [--shot-every N] [--smoke] [--sound] [--state F] [--save-state F] [--fast] [--show] [--clean-saves]
-                  [--emu PPSSPPWindows64.exe] [--emu-arg ARG].. [--timeout SEC]
+                  [--shot-every N] [--smoke] [--state F] [--save-state F] [--sav DIR] [--memstick DIR]
+                  [--emu PPSSPPHeadless.exe] [--emu-arg ARG].. [--timeout SEC]
 (emu.py calls this for PSP images and maps --state-in/--state-out to --state/--save-state.)
 
 Route: "FRAMES KEYS" steps separated by ';' or newlines, "#" comments; KEYS is '-' or buttons joined with '+':
-cross circle square triangle start select up down left right ltrigger rtrigger. FRAMES are 60 Hz emulated frames, read from
-the emulator's own clock, so a slow host gets the same route, just later.
-Speed: real time (1 frame = 16.7 ms) unless --fast, which holds PPSSPP's Tab fast-forward (~17x) with real key events: it needs
-the window in the foreground, so it grabs the keyboard for the run. A state (--state) skips the boot and menus: save one
-at the scene you test with --save-state (sends F2 to the window), then every later run starts there in seconds.
-The memstick lives beside the exe (tools/.../memstick); saves persist between runs, --clean-saves wipes PSP/SAVEDATA first.
+cross circle square triangle start select up down left right ltrigger rtrigger. FRAMES are 60 Hz emulated frames. The CPU
+runs to each press edge and shot with cpu.runUntilTime and stops there, so a route lands on the same frames every run, as
+fast as the host allows. States load and save by path (game.state.load/save). Needs PPSSPPHeadless built from PPSSPP
+master of 2026-10-19 or later. One install per machine (fetch_emu.py ppsspp-headless puts it in SHARED below): the
+debugger listens on a port, so Windows Firewall asks once per exe path; a copy per repo would ask again in each.
+In-game saves are per test: each run gets a fresh memstick in OUT/memstick (no saves, as a new console), seeded by
+--sav DIR (a save folder such as PSP/SAVEDATA/NPJH50457DATA00, or a whole SAVEDATA folder). --memstick DIR keeps one
+memstick across runs instead (play.py gives each session its own).
 Exit: 0 ok, 2 driver/emulator error, 3 smoke failed (flat final frame), 124 timeout."""
-import argparse, base64, ctypes, glob, json, os, re, shutil, socket, struct, subprocess, sys, time
-from ctypes import wintypes
+import argparse, base64, json, os, re, shutil, socket, struct, subprocess, sys, tempfile, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -32,7 +33,7 @@ class WS:
         buf = b''
         while b'\r\n\r\n' not in buf: buf += self.s.recv(1)
         assert b' 101 ' in buf.split(b'\r\n')[0], buf
-        self.buf = b''; self.ticket = 0
+        self.buf = b''; self.ticket = 0; self.events = []
 
     def _read(self, n):
         while len(self.buf) < n:
@@ -59,7 +60,7 @@ class WS:
         self.s.sendall(h + m + bytes(b ^ m[i & 3] for i, b in enumerate(p)))
 
     def call(self, event, **params):
-        """Send EVENT, return the reply with the same ticket (other events are dropped)."""
+        """Send EVENT, return the reply with the same ticket (other events are kept for wait())."""
         self.ticket += 1
         self._send(1, json.dumps(dict(event=event, ticket=self.ticket, **params)).encode())
         while True:
@@ -67,36 +68,16 @@ class WS:
             if r.get('ticket') == self.ticket:
                 if r['event'] == 'error': raise RuntimeError(r.get('message', r))
                 return r
+            if 'ticket' not in r: self.events.append(r)
+
+    def wait(self, event):
+        """Block until the unsolicited EVENT (e.g. cpu.stepping) arrives."""
+        while True:
+            r = self.events.pop(0) if self.events else self.recv()
+            if r.get('event') == event: return r
 
     def mem(self, addr, size):
         return base64.b64decode(self.call('memory.read', address=addr, size=size)['base64'])
-
-
-# ---- window control ----
-u = ctypes.windll.user32 if os.name == 'nt' else None
-WM_KEYDOWN, WM_KEYUP = 0x100, 0x101
-SW = {'hide': 0, 'show': 5, 'min': 6, 'restore': 9, 'noact': 4}
-def find(pid):
-    out = []
-    cb = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)(lambda h, _: (out.append(h) if _pid(h) == pid and u.GetWindow(h, 4) == 0 else None) or True)
-    u.EnumWindows(cb, 0)
-    return out
-
-def _pid(h):
-    p = wintypes.DWORD(); u.GetWindowThreadProcessId(h, ctypes.byref(p)); return p.value
-
-def title(h):
-    b = ctypes.create_unicode_buffer(256); u.GetWindowTextW(h, b, 256); return b.value
-
-def main_window(pid):
-    ws = [h for h in find(pid) if title(h).startswith('PPSSPP')]
-    return ws[0] if ws else None
-
-def win_show(h, how): u.ShowWindow(h, SW[how])
-
-def key(h, vk, down=True):
-    sc = u.MapVirtualKeyW(vk, 0)
-    u.PostMessageW(h, WM_KEYDOWN if down else WM_KEYUP, vk, 1 | (sc << 16) | (0 if down else 0xC0000000))
 
 
 # ---- driver ----
@@ -116,115 +97,88 @@ def parse_route(text):
         steps.append((int(n), keys))
     return steps
 
+def plan(steps, frames, shots):
+    """[(frame, shoot?, keys held from there)] for every frame where the keys change or a shot is due, up to `frames`."""
+    edges = []; acc = 0
+    for n, k in steps: edges.append((acc, k)); acc += n
+    stops = sorted({lo for lo, _ in edges} | shots | {acc, frames})   # acc: the route's end releases its last keys
+    return [(f, f in shots, next((k for lo, k in reversed(edges) if lo <= f), set()) if f < acc else set())
+            for f in stops if f <= frames]
+
+def _selftest():
+    p = plan(parse_route('10 -;6 circle;20 -'), 36, {12, 30})
+    assert p == [(0, False, set()), (10, False, {'circle'}), (12, True, {'circle'}), (16, False, set()),
+                 (30, True, set()), (36, False, set())], p
+    assert plan([(5, {'up'})], 8, set()) == [(0, False, {'up'}), (5, False, set()), (8, False, set())]
+    with tempfile.TemporaryDirectory() as t:   # seed_saves: one save folder, or a folder of them
+        one = os.path.join(t, 'src', 'ULJM00001DATA00'); os.makedirs(one); open(os.path.join(one, 'PARAM.SFO'), 'w').close()
+        seed_saves(os.path.join(t, 'a'), one); seed_saves(os.path.join(t, 'b'), os.path.join(t, 'src'))
+        for m in 'ab': assert os.path.exists(os.path.join(t, m, 'PSP', 'SAVEDATA', 'ULJM00001DATA00', 'PARAM.SFO')), m
+    print('selftest ok')
+
 def free_port():
     s = socket.socket(); s.bind(('127.0.0.1', 0)); p = s.getsockname()[1]; s.close(); return p
 
-def find_emu(arg):
-    # each project keeps its own build in tools/; the env var is only a fallback
-    for c in [arg] + sorted(glob.glob('tools/**/PPSSPPWindows64.exe', recursive=True)) + [os.environ.get('PPSSPP')]:
-        if c and os.path.exists(c): return os.path.abspath(c)
-    sys.exit('PPSSPPWindows64.exe not found under tools/: run scripts/fetch_emu.py ppsspp, or pass --emu')
+SHARED = os.path.join(os.environ.get('LOCALAPPDATA') or os.path.expanduser('~'), 'translate-retro-game', 'ppsspp-headless')
 
-def set_sound(ms_dir, on):
-    """QA runs are silent: [Sound] Enable in the memstick's ppsspp.ini (PPSSPP rewrites the file on exit, so set it every run)."""
-    ini = os.path.join(ms_dir, 'PSP', 'SYSTEM', 'ppsspp.ini'); os.makedirs(os.path.dirname(ini), exist_ok=True)
-    lines = open(ini, encoding='utf-8').read().splitlines() if os.path.exists(ini) else []
-    want = f'Enable = {on}'; sec = None; out = []; done = False
-    for ln in lines:
-        if ln.startswith('['):
-            if sec == '[Sound]' and not done: out.append(want); done = True
-            sec = ln.strip()
-        elif sec == '[Sound]' and ln.split('=')[0].strip() == 'Enable': ln = want; done = True
-        out.append(ln)
-    if not done:
-        if sec == '[Sound]': out.append(want)
-        else: out += ['[Sound]', want]
-    open(ini, 'w', encoding='utf-8', newline='\n').write('\n'.join(out) + '\n')
+def find_emu(arg):
+    # one install for every repo (see the docstring: firewall), not tools/ in each
+    for c in [arg, os.environ.get('PPSSPP_HEADLESS'), os.path.join(SHARED, 'PPSSPPHeadless.exe')]:
+        if c and os.path.exists(c): return os.path.abspath(c)
+    sys.exit(f'PPSSPPHeadless.exe not found in {SHARED}: run scripts/fetch_emu.py ppsspp-headless, or pass --emu')
+
+def seed_saves(ms, sav):
+    """Copy a save folder (has PARAM.SFO) or a folder of them into memstick MS's PSP/SAVEDATA."""
+    dest = os.path.join(ms, 'PSP', 'SAVEDATA')
+    if os.path.exists(os.path.join(sav, 'PARAM.SFO')): dest = os.path.join(dest, os.path.basename(os.path.normpath(sav)))
+    shutil.copytree(sav, dest, dirs_exist_ok=True)
 
 class Run:
-    def __init__(self, emu, iso, out, show=False, state=None, memstick=None, extra=(), sound=False):
-        self.out = out; self.emu = emu; os.makedirs(out, exist_ok=True)
+    """One PPSSPPHeadless process, stopped at the entry point (or at the loaded state) until run_to()."""
+    def __init__(self, emu, iso, out, state=None, memstick=None, extra=()):
+        self.out = out; os.makedirs(out, exist_ok=True)
         self.port = free_port()
-        ms = memstick or os.path.join(os.path.dirname(emu), 'memstick')
-        set_sound(ms, sound)
-        cmd = [emu, f'--memstick={ms}', f'--debugger={self.port}', f'--log={os.path.abspath(out)}/ppsspp.log']
-        if state: cmd.append(f'--state={state}')
-        cmd += list(extra)
-        cmd.append(os.path.abspath(iso))
-        kw = {}
-        if os.name == 'nt':  # ask for a hidden window at launch, so it does not flash before win_show(hide) below
-            si = subprocess.STARTUPINFO()
-            si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-            si.wShowWindow = 0 if not show else 5  # SW_HIDE / SW_SHOW
-            kw['startupinfo'] = si
-        self.p = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, **kw)
+        self.ms = memstick or os.path.join(out, 'memstick')
+        # --ppge (QA fork): draw the PSP system dialogs (save/load prompts) that stock headless leaves out
+        cmd = [emu, f'--memstick={self.ms}', f'--debugger={self.port}', '--ppge', *extra, os.path.abspath(iso)]
+        self.log = open(os.path.join(out, 'ppsspp.log'), 'w')
+        self.p = subprocess.Popen(cmd, stdout=self.log, stderr=self.log, creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
         self.ws = None; t0 = time.time()
-        while time.time() - t0 < 30:
+        while time.time() - t0 < 30 and self.p.poll() is None:
             try: self.ws = WS(self.port, timeout=30); break
             except OSError: time.sleep(0.2)
-        if not self.ws: raise RuntimeError('debugger port never opened')
-        t0 = time.time()
-        while time.time() - t0 < 60:   # wait for the game to be running
-            if self.ws.call('game.status')['game']: break
-            time.sleep(0.2)
-        else: raise RuntimeError('game did not start')
-        self.hwnd = None
-        for _ in range(50):
-            self.hwnd = main_window(self.p.pid)
-            if self.hwnd: break
-            time.sleep(0.1)
-        if self.hwnd and not show: win_show(self.hwnd, 'hide')
-        self.keys = set(); self.fast = False; self.show = show
+        if not self.ws: raise RuntimeError(f'debugger port never opened (see {self.log.name})')
+        if not self.ws.call('game.status')['game']: raise RuntimeError('game did not start')
+        if state: self.ws.call('game.state.load', path=os.path.abspath(state), wait=True)
+        self.base = self.ws.call('cpu.status')['us']   # frame 0: a loaded state carries its own clock
+        self.keys = None
 
-    def us(self): return self.ws.call('cpu.status')['us']
-    def frame(self): return int(self.us() / FRAME_US)
+    def frame(self): return round((self.ws.call('cpu.status')['us'] - self.base) / FRAME_US)
 
-    def pause(self):
-        self.ws._send(1, b'{"event":"cpu.stepping","ticket":9999}')
-        while self.ws.recv().get('event') == 'cpu.stepping': break
-
-    def resume(self):
-        self.ws._send(1, b'{"event":"cpu.resume","ticket":9998}')
-        for _ in range(20):
-            r = self.ws.recv()
-            if r.get('event') == 'cpu.resume': break
+    def run_to(self, f):
+        """Run until frame F (from the start or the loaded state) and stop there."""
+        target = self.base + round(f * FRAME_US)
+        if target > self.ws.call('cpu.status')['us'] + 100:
+            self.ws.call('cpu.runUntilTime', us=target)
+            # an older cpu.stepping (the entry-point break) may still be queued: go by the clock, which stops up to
+            # a cycle short of the target
+            while self.ws.wait('cpu.stepping') and self.ws.call('cpu.status')['us'] < target - 100: pass
 
     def shot(self, name):
-        self.pause()
-        try: r = self.ws.call('gpu.buffer.screenshot')
-        finally: self.resume()
-        data = base64.b64decode(r['uri'].split(',')[1])
-        open(os.path.join(self.out, name), 'wb').write(data); return os.path.join(self.out, name)
+        r = self.ws.call('gpu.buffer.screenshot')
+        open(os.path.join(self.out, name), 'wb').write(base64.b64decode(r['uri'].split(',')[1]))
+        return os.path.join(self.out, name)
 
     def press(self, keys):
         if keys == self.keys: return
         self.ws.call('input.buttons.send', buttons={k: (k in keys) for k in BUTTONS}); self.keys = set(keys)
 
-    def set_fast(self, on):
-        if on == self.fast or not self.hwnd: return
-        u = ctypes.windll.user32
-        if on: u.ShowWindow(self.hwnd, 4); u.SetForegroundWindow(self.hwnd); time.sleep(0.3)
-        u.keybd_event(9, 0x0F, 0 if on else 2, 0); self.fast = on
-
-    def key_vk(self, vk, hold=0.15):
-        """Real keyboard event to the PPSSPP window (needs focus; used for save-state hotkeys)."""
-        u = ctypes.windll.user32; u.ShowWindow(self.hwnd, 9); time.sleep(0.5)
-        u.keybd_event(0x12, 0, 0, 0); u.keybd_event(0x12, 0, 2, 0)   # an Alt tap lets SetForegroundWindow through
-        u.SetForegroundWindow(self.hwnd); time.sleep(0.5)
-        sc = u.MapVirtualKeyW(vk, 0); u.keybd_event(vk, sc, 0, 0); time.sleep(hold); u.keybd_event(vk, sc, 2, 0); time.sleep(0.3)
-        if self.hwnd and not self.show: win_show(self.hwnd, 'hide')
-
     def save_state(self, dest):
-        d = os.path.join(os.path.dirname(self.emu), 'memstick', 'PSP', 'PPSSPP_STATE'); before = set(glob.glob(d + '/*.ppst'))
-        self.key_vk(0x71); time.sleep(1.5)   # F2 = save state to the current slot
-        new = [f for f in glob.glob(d + '/*.ppst') if f not in before or os.path.getmtime(f) > time.time() - 10]
-        if not new: raise RuntimeError('F2 did not produce a .ppst')
-        os.makedirs(os.path.dirname(os.path.abspath(dest)), exist_ok=True); shutil.copyfile(max(new, key=os.path.getmtime), dest)
+        os.makedirs(os.path.dirname(os.path.abspath(dest)), exist_ok=True)
+        self.ws.call('game.state.save', path=os.path.abspath(dest), wait=True)
 
     def close(self):
-        try: self.set_fast(False)
-        except Exception: pass
-        subprocess.run(['taskkill', '/F', '/T', '/PID', str(self.p.pid)], capture_output=True)
+        self.p.kill(); self.p.wait(); self.log.close()
 
 def blank(png):
     """True when the screenshot is (nearly) one flat colour: a black or white screen that never rendered."""
@@ -237,44 +191,39 @@ def main(argv=None):
     ap.add_argument('iso'); ap.add_argument('--out', required=True)
     ap.add_argument('--route'); ap.add_argument('--route-str'); ap.add_argument('--frames', type=int)
     ap.add_argument('--shots', default=''); ap.add_argument('--shot-every', type=int, default=0)
-    ap.add_argument('--smoke', action='store_true'); ap.add_argument('--fast', action='store_true'); ap.add_argument('--show', action='store_true')
-    ap.add_argument('--sound', action='store_true', help='leave PPSSPP audio on (QA runs are muted by default)')
-    ap.add_argument('--clean-saves', action='store_true', help='empty PSP/SAVEDATA on the memstick first (fresh-install run)')
-    ap.add_argument('--save-state', help='write the PPSSPP save state (slot 1) to this file at the end of the route'); ap.add_argument('--emu'); ap.add_argument('--emu-arg', action='append', default=[], help='extra PPSSPP argument, e.g. -d for debug logging'); ap.add_argument('--state'); ap.add_argument('--timeout', type=int, default=600)
+    ap.add_argument('--smoke', action='store_true')
+    ap.add_argument('--sav', help='save folder (PSP/SAVEDATA/<ID>DATA00) or SAVEDATA folder copied into the memstick first')
+    ap.add_argument('--memstick', help='keep the memstick in DIR across runs (default: a fresh one in OUT/memstick)')
+    ap.add_argument('--save-state', help='write a PPSSPP save state to this file at the end of the route')
+    ap.add_argument('--state', help='start from this PPSSPP save state')
+    ap.add_argument('--emu'); ap.add_argument('--emu-arg', action='append', default=[], help='extra PPSSPPHeadless argument, e.g. --graphics=directx11')
+    ap.add_argument('--timeout', type=int, default=600)
     a = ap.parse_args(argv)
     steps = parse_route(open(a.route).read() if a.route else a.route_str or '')
-    total = sum(n for n, _ in steps)
-    frames = a.frames or total or 600
-    shots = sorted(int(x) for x in a.shots.split(',') if x)
+    frames = a.frames or sum(n for n, _ in steps) or 600
+    shots = {int(x) for x in a.shots.split(',') if x}
+    if a.shot_every: shots |= set(range(a.shot_every, frames + 1, a.shot_every))
     run = None; code = 0; t_start = time.time()
     try:
         emu = find_emu(a.emu)
-        if a.clean_saves:
-            sd = os.path.join(os.path.dirname(emu), 'memstick', 'PSP', 'SAVEDATA')
-            for d in glob.glob(sd + '/*'): shutil.rmtree(d, ignore_errors=True)
-        run = Run(emu, a.iso, a.out, a.show, a.state, extra=a.emu_arg, sound=a.sound)
-        base = run.frame(); log = open(os.path.join(a.out, 'log.txt'), 'w'); si = 0; nshots = 0; last_ev = -1
-        edges = []; acc = 0
-        for n, k in steps: edges.append((acc, acc + n, k)); acc += n
-        if a.fast: run.set_fast(True)
-        while True:
-            if time.time() - t_start > a.timeout: code = 124; break
-            f = run.frame() - base
-            keys = next((k for lo, hi, k in edges if lo <= f < hi), set())
+        ms = os.path.abspath(a.memstick or os.path.join(a.out, 'memstick'))
+        if not a.memstick: shutil.rmtree(ms, ignore_errors=True)   # per test: what an earlier run saved is gone
+        if a.sav: seed_saves(ms, a.sav)
+        run = Run(emu, a.iso, a.out, a.state, memstick=ms, extra=a.emu_arg)
+        run.ws.s.settimeout(a.timeout)
+        for f, shoot, keys in plan(steps, frames, shots):
+            run.run_to(f)
+            if shoot: run.shot(f'f{f:06d}.png')
             run.press(keys)
-            while si < len(shots) and f >= shots[si]:
-                run.shot(f'f{shots[si]:06d}.png'); nshots += 1; si += 1
-            if a.shot_every and f // a.shot_every != last_ev and f > 0:
-                last_ev = f // a.shot_every; run.shot(f'f{f:06d}.png'); nshots += 1
-            if f >= frames: break
-            time.sleep(0.02)
+            if time.time() - t_start > a.timeout: code = 124; break
         if code == 0:
-            run.press(set()); run.set_fast(False)
+            fin = run.shot('final.png')
             if a.save_state: run.save_state(a.save_state)
-            fin = run.shot('final.png'); log.write(f'final frame {run.frame() - base}\n'); log.close()
             if a.smoke and blank(fin): code = 3
-        print(f'exit {code}  shots {nshots}  final {"yes" if os.path.exists(os.path.join(a.out, "final.png")) else "no"}  '
+        print(f'exit {code}  shots {len([s for s in shots if s <= frames])}  final {"yes" if code != 124 else "no"}  '
               f'{time.time() - t_start:.1f}s for {frames} frames  dir {a.out}')
+    except socket.timeout:
+        print('timeout'); code = 124
     except Exception as e:
         print('driver error:', e); code = 2
     finally:
@@ -282,4 +231,4 @@ def main(argv=None):
     sys.exit(code)
 
 if __name__ == '__main__':
-    main()
+    _selftest() if sys.argv[1:] == ['--selftest'] else main()

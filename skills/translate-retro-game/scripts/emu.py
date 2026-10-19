@@ -11,8 +11,8 @@ System from the ROM extension:
   .nds               -> DeSmuME. QA fork (has --headless): no window, own ini per run, PNG shots, path states,
                         exec hooks under JIT. Stock: window opens, Lua via lua51.dll beside the exe, shared
                         desmume.ini edited then restored, slot states, --debugger needed for exec hooks
-  .iso/.cso with /PSP_GAME -> PPSSPP via psp.py (window hidden, WebSocket debugger; Windows; --state-in/--state-out are
-                        PPSSPP .ppst states, extra flags: --clean-saves --fast --show, see psp.py --help)
+  .iso/.cso with /PSP_GAME -> PPSSPPHeadless via psp.py (no window, WebSocket debugger; --state-in/--state-out are
+                        PPSSPP .ppst states; --sav is a save folder, each run a fresh memstick unless --memstick DIR)
   .cue/.bin/.iso/.chd -> PCSX-Redux (-no-ui; SPU muted, 8x speed; --bios, env PSX_BIOS or tools/bios/scph*.bin (fetch_emu.py psx-bios), else OpenBIOS)
 Route: one step per line, "FRAMES BUTTONS" with BUTTONS "-" (none) or "a+start+up"; "#" starts a comment.
 NDS adds "t128,96" (touch the bottom screen at x,y). PS1 buttons: cross circle square triangle l1 r1 l2 r2 ...
@@ -26,7 +26,7 @@ L.dump_ppu(prefix), L.dump_ram(path), plus the emulator's own API. Ready-made pr
 
 Exit codes: 0 ok, 2 Lua error (message printed), 3 smoke failed, 124 timeout, other = emulator failure.
 Emulator lookup: --emu, then tools/**/<exe> in the current repo (each project keeps its own downloaded copy), then env
-MESEN / DESMUME / PCSX_REDUX / PPSSPP.
+MESEN / DESMUME / PCSX_REDUX / PPSSPP_HEADLESS.
 """
 import argparse, configparser, glob, json, os, shutil, struct, subprocess, sys, tempfile, time
 
@@ -220,12 +220,11 @@ def run_psp(a):
     argv = [a.rom, "--out", a.out, "--timeout", str(a.timeout)]
     for flag, val in (("--route", a.route), ("--route-str", a.route_str), ("--frames", a.frames), ("--shots", a.shots),
                       ("--shot-every", a.shot_every or None), ("--state", a.state_in), ("--save-state", a.state_out),
-                      ("--emu", a.emu)):
+                      ("--emu", a.emu), ("--memstick", a.memstick), ("--sav", a.sav)):
         if val:
             argv += [flag, str(val)]
-    for flag, on in (("--smoke", a.smoke), ("--sound", a.sound), ("--fast", a.fast), ("--show", a.show), ("--clean-saves", a.clean_saves)):
-        if on:
-            argv.append(flag)
+    if a.smoke:
+        argv.append("--smoke")
     try:
         psp.main(argv)
     except SystemExit as e:
@@ -414,7 +413,7 @@ if __name__ == "__main__":
     ap.add_argument("--state-in")
     ap.add_argument("--state-out")
     ap.add_argument("--state-every", type=int, default=0, help="save DIR/s<frame>.<ext> every N frames (not NDS)")
-    ap.add_argument("--sav", "--memcard", help="battery save or PS1 memory card; a fresh copy is used each run")
+    ap.add_argument("--sav", "--memcard", help="battery save, PS1 memory card or PSP save folder; a fresh copy is used each run")
     ap.add_argument("--mash", type=int, default=0, help="press --mash-key for 6 frames every N frames once the route ends")
     ap.add_argument("--mash-key", help="default a (cross on PS1)")
     ap.add_argument("--script", action="append", help="Lua appended after the driver (repeatable)")
@@ -426,8 +425,6 @@ if __name__ == "__main__":
     ap.add_argument("--timeout", type=int, default=300)
     ap.add_argument("--sheet", action="store_true")
     ap.add_argument("--smoke", action="store_true")
-    ap.add_argument("--fast", action="store_true", help="PSP: hold PPSSPP's fast-forward (needs the window focused)")
-    ap.add_argument("--sound", action="store_true", help="PSP: keep audio on (muted by default)")
-    ap.add_argument("--show", action="store_true", help="leave the emulator window visible (PSP: PPSSPP; PS1 on Windows: PCSX-Redux, else it starts minimized)")
-    ap.add_argument("--clean-saves", action="store_true", help="PSP: empty the memstick SAVEDATA first")
+    ap.add_argument("--show", action="store_true", help="leave the emulator window visible (PS1 on Windows: PCSX-Redux, else it starts minimized)")
+    ap.add_argument("--memstick", help="PSP: keep the memstick in DIR across runs (default: a fresh one per run)")
     sys.exit(run(ap.parse_args()))

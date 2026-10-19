@@ -1,6 +1,6 @@
 """Download an emulator release that matches this machine's OS and CPU into the repo's own tools/<name>/.
 
-    python fetch_emu.py mesen|desmume|pcsx|ppsspp|gba-bios|psx-bios [--dest tools] [--force] [--dry-run] [--os windows|linux|macos] [--arch x64|arm64]
+    python fetch_emu.py mesen|desmume|pcsx|ppsspp|ppsspp-headless|gba-bios|psx-bios [--dest tools] [--force] [--dry-run] [--os windows|linux|macos] [--arch x64|arm64]
 
 gba-bios / psx-bios fetch a console BIOS (github.com/Abdess/retrobios) to tools/mesen/Firmware/gba_bios.bin
 and tools/bios/scph5500.bin (Japanese PS1), checked against the known SHA-1 of the dump.
@@ -28,6 +28,9 @@ TARGETS = {
         ("linux", "x64"): r"-anylinux-x86_64\.AppImage$", ("linux", "arm64"): r"-anylinux-aarch64\.AppImage$",
         ("macos", "x64"): r"PPSSPPSDL-macOS-.*\.zip$", ("macos", "arm64"): r"PPSSPPSDL-macOS-.*\.zip$"},
      "ppsspp.org/downloads.html"),
+    # what psp.py drives (no window, states by path, stepping by emulated time); one install per machine, see psp.SHARED
+    "ppsspp-headless": ("minhnhattonthat/ppsspp", {("windows", "x64"): r"-win64\.zip$", ("windows", "arm64"): r"-win64\.zip$"},
+                        "github.com/minhnhattonthat/ppsspp/releases (the QA fork is Windows x64 only; elsewhere build `agent-qa`, see QA-FORK.md)"),
 }
 
 
@@ -118,6 +121,9 @@ def main():
     if a.dry_run:
         return
     dest = os.path.join(a.dest, a.emulator)
+    if a.emulator == "ppsspp-headless" and a.dest == "tools":  # shared by every repo: one firewall prompt, not one per repo
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        from psp import SHARED as dest
     if os.path.isdir(dest) and os.listdir(dest) and not a.force:
         sys.exit(f"{dest} is not empty: pass --force to unpack over it (settings and saves there are kept)")
     os.makedirs(dest, exist_ok=True)
