@@ -81,8 +81,8 @@ Unpack → repack with no edits → compare bytes. Make this the first test in t
   - half-width;
   - VWF;
   - tiny 2-letters-per-tile font;
-  - digraph glyphs when the renderer ignores advance widths. Each letter gets half the cell: with a 12 px cell and a 1 px shadow, no letter may be wider than 5 px. A 7 px M or W runs into its neighbour ("Ma" read "Mb"). Assert the width in the encoder self-test.
-  - A glyph cache that loads English cells on demand into a screen's tile area must turn itself off whenever a plain (uncached) charset loads at the same tiles. Otherwise a screen redrawn after a cached sub-screen reads its tile indices as glyph codes and shows garbage.
+  - digraph glyphs when the renderer ignores advance widths. Each letter gets half the cell, so no letter may be wider than half the cell minus any shadow or outline the game adds (12 px cell + 1 px shadow: 5 px). A wider letter runs into its neighbour (GetBackers: a 7 px M made "Ma" read "Mb"). Assert the width in the encoder self-test.
+  - If you build a glyph cache (English cells loaded on demand into a screen's tile area), it must turn itself off whenever a plain (uncached) charset loads at the same tiles. Otherwise a screen redrawn after a cached sub-screen reads its tile indices as glyph codes and shows garbage.
 - Try paths in order of cost and boot each one. A black-screen-after-logo bug once came from a font patch that was never booted.
 - Users usually prefer engine work to abbreviation, so budget for the bigger change: widen boxes, add lines or pages, move to free space.
 
