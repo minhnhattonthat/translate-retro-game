@@ -5,7 +5,9 @@ repo, no git, no subagents. Return the report as your final message; the control
 
 ## Inputs (in your dispatch)
 - ROM (build under test), a session dir of your own, and a goal: "from the title, play until the first battle ends",
-  "open every menu tab", "talk to everyone in town 1". Optional: `--state` to start near the scene, `--sav`.
+  "open every menu tab", "talk to everyone in town 1". Optional: `--sav` (an in-game save; title > Continue) or
+  `--state` to start near the scene. A savestate from an older build can show garbled or stale text that the current
+  build doesn't have; when the first screens of a `--state` start look wrong, say so instead of filing them.
 - Turn budget (default 80 calls; a long prologue alone can eat 60, so goals deep in the game start from `--state`). Stop at the goal or the budget, whichever comes first.
 - Genre notes from this file's last section, and `glossary.md` for names.
 - `docs/bugs.md` if it exists: known bugs. Don't report an open one again; do report a ticked one that is back.

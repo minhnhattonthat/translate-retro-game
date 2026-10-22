@@ -16,7 +16,8 @@ SESSION holds rom.txt, NNNN.<state>, NNNN.png and log.tsv (step, presses), so a 
 --every N also shoots every N frames during the step and prints contact sheets of 12 frames each first
 (typed text, fades), each path followed by its frame numbers; no frame is dropped.
 --export appends the report's "- [ ] step NNNN - ..." lines to --bugs under a dated heading (ROM sha1, evidence
-dir) and copies the cited steps' shots, sheets and states to --to (default work/playtest/<session name>). Ranges
+dir) and copies the cited steps' shots, sheets and states to --to (default work/playtest/<session name>, or
+work/playtest/<session name>-bugs when the session itself lives there). Ranges
 "step 0038-0050" copy both ends. Run it from the game repo.
 Exit codes as emu.py.
 """
@@ -104,7 +105,10 @@ def main():
     n = last_step(sess)
 
     if a.export:
-        export(sess, rom, a.export, a.bugs, a.to or os.path.join("work", "playtest", os.path.basename(os.path.normpath(sess))))
+        to = a.to or os.path.join("work", "playtest", os.path.basename(os.path.normpath(sess)))
+        if os.path.abspath(to) == os.path.abspath(sess):  # session already under work/playtest: copying onto itself fails
+            to += "-bugs"
+        export(sess, rom, a.export, a.bugs, to)
         return
 
     if a.back:
