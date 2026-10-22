@@ -156,9 +156,9 @@ python -X utf8 $SKILL/scripts/play.py SESSION --back 2                          
 - Fallback without Lua: a `.dsm` input movie (`--play-movie`); every frame line needs the mic field `|0|RLDUTSBAYXWEG xxx yyy t 000|` or parsing drifts.
 
 **PCSX-Redux (PS1):**
-- `pcsx-redux.exe -portable -no-ui -run -fastboot -loadiso x.cue -dofile run.lua`. Without a window, `PCSX.quit(n)` returns n. Download: `setup.md`.
+- `pcsx-redux.main -portable -no-ui -run -fastboot -loadiso x.cue -dofile run.lua`: no window, no console, nothing needs focus; `PCSX.quit(n)` returns n. On Windows emu.py runs `pcsx-redux.main` (beside the exe) directly: `pcsx-redux.exe` is a launcher that drops the stdout pipe, so `-no-ui` opens a console window. Download: `setup.md`.
 - Speed is paced by the SPU: the driver sets `PCSX.settings.spu.Mute = true` and `spu.Speed = 8`, so 2,100 frames take ~6 s instead of ~40 s.
-- On timeout emu.py kills the whole process tree: the `pcsx-redux.exe` launcher leaves `pcsx-redux.main` running otherwise, and the orphan blocks the next run.
+- On timeout emu.py kills the whole process tree (through the `pcsx-redux.exe` launcher an orphaned `pcsx-redux.main` blocks the next run).
 - BIOS: `--bios`, env `PSX_BIOS`, or `tools/bios/scph*.bin` (`fetch_emu.py psx-bios` saves SCPH-5500, for Japanese games). Without one, the bundled OpenBIOS is used, which is fine for a smoke test, but use the real BIOS when checking a scene.
 - Screenshots: the resolution changes with the game mode (320×240, 640×480); while the display is off, the shot is 0×0 (stored as one black pixel). `sheet.py` handles mixed sizes.
 - Savestates are uncompressed (~21 MB). **Take them on a quiet screen** (title, field, menu). A state taken during boot or an FMV loaded but then hung on black after the next input.

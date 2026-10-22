@@ -138,7 +138,7 @@ def desmume_ini(exe, out, battery):
 
 
 def kill_tree(p):
-    """A timeout kills only the child; PCSX-Redux's launcher leaves pcsx-redux.main running."""
+    """A timeout kills only the child: also kill anything it started (PCSX-Redux's launcher leaves pcsx-redux.main)."""
     if os.name == "nt":
         subprocess.run(["taskkill", "/T", "/F", "/PID", str(p.pid)], capture_output=True)
     p.kill()
@@ -168,42 +168,6 @@ def to_png(path):
             rows = [b"".join(lut[v & 0x7FFF] for v in vals[y * w:(y + 1) * w]) for y in range(h)]
     sheetmod.write_png(os.path.splitext(path)[0] + ".png", w, h, rows)
     os.remove(path)
-
-
-def keep_minimized(p, folder):
-    """Windows: minimize (without focus) every window of the emulator's processes while it runs: the emulator creates
-    its window visible whatever the start flags say. Windows of processes started from `folder` are matched by image path."""
-    import ctypes
-    import ctypes.wintypes as wt
-    import threading
-    u, k = ctypes.windll.user32, ctypes.windll.kernel32
-    k.OpenProcess.restype = wt.HANDLE
-    folder = os.path.normcase(os.path.abspath(folder))
-
-    def image(pid):
-        h = k.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
-        if not h:
-            return ""
-        buf, n = ctypes.create_unicode_buffer(520), wt.DWORD(520)
-        k.QueryFullProcessImageNameW(h, 0, buf, ctypes.byref(n))
-        k.CloseHandle(h)
-        return os.path.normcase(buf.value)
-
-    @ctypes.WINFUNCTYPE(wt.BOOL, wt.HWND, wt.LPARAM)
-    def each(hwnd, _):
-        if u.IsWindowVisible(hwnd) and not u.IsIconic(hwnd):
-            pid = wt.DWORD()
-            u.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
-            if image(pid.value).startswith(folder):
-                u.ShowWindow(hwnd, 7)  # SW_SHOWMINNOACTIVE
-        return True
-
-    def loop():
-        while p.poll() is None:
-            u.EnumWindows(each, 0)
-            time.sleep(0.05)
-
-    threading.Thread(target=loop, daemon=True).start()
 
 
 def is_psp(path):
@@ -338,7 +302,11 @@ def run(a):
         cmd, cwd = [exe, "--disable-sound", *jit, rom], os.path.dirname(exe)
     else:
         bios = a.bios or os.environ.get("PSX_BIOS") or next(iter(glob.glob(os.path.join("tools", "bios", "scph*.bin"))), None)
-        cmd = [exe, "-portable", "-noupdate", "-no-ui", "-run", "-fastboot", "-loadiso", rom, "-dofile", lua]
+        # Windows: pcsx-redux.exe is a ShellExecute launcher that drops our pipes, so -no-ui opens a console window;
+        # the real binary beside it inherits them and runs with no window at all
+        main = os.path.splitext(exe)[0] + ".main"
+        run = main if os.name == "nt" and os.path.isfile(main) else exe
+        cmd = [run, "-portable", "-noupdate", "-no-ui", "-run", "-fastboot", "-loadiso", rom, "-dofile", lua]
         cmd += ["-debugger", "-interpreter"] if a.debugger else ["-no-debugger", "-dynarec"]
         if bios:
             cmd += ["-bios", os.path.abspath(bios)]
@@ -356,8 +324,6 @@ def run(a):
     p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8",
                          errors="replace", cwd=cwd, **extra)  # stderr=DEVNULL made runs ~4x slower
     print(f"emulator pid {p.pid} (to stop only this run: taskkill /T /F /PID {p.pid})", flush=True)
-    if os.name == "nt" and system == "psx" and not a.show:  # (other emulators: untested with a minimized window)
-        keep_minimized(p, os.path.dirname(exe))
     try:
         stdout, rc = p.communicate(timeout=a.timeout + 30)[0], p.returncode
     except subprocess.TimeoutExpired:  # kill the whole tree and reap it, so the next run can start
@@ -425,6 +391,6 @@ if __name__ == "__main__":
     ap.add_argument("--timeout", type=int, default=300)
     ap.add_argument("--sheet", action="store_true")
     ap.add_argument("--smoke", action="store_true")
-    ap.add_argument("--show", action="store_true", help="leave the emulator window visible (PS1 on Windows: PCSX-Redux, else it starts minimized)")
+    ap.add_argument("--show", action="store_true", help="Windows: leave the emulator window visible (else it starts minimized; PS1 has no window either way)")
     ap.add_argument("--memstick", help="PSP: keep the memstick in DIR across runs (default: a fresh one per run)")
     sys.exit(run(ap.parse_args()))
