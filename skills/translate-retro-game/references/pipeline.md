@@ -81,7 +81,8 @@ Unpack → repack with no edits → compare bytes. Make this the first test in t
   - half-width;
   - VWF;
   - tiny 2-letters-per-tile font;
-  - digraph glyphs when the renderer ignores advance widths.
+  - digraph glyphs when the renderer ignores advance widths. Each letter gets half the cell: with a 12 px cell and a 1 px shadow, no letter may be wider than 5 px. A 7 px M or W runs into its neighbour ("Ma" read "Mb"). Assert the width in the encoder self-test.
+  - A glyph cache that loads English cells on demand into a screen's tile area must turn itself off whenever a plain (uncached) charset loads at the same tiles. Otherwise a screen redrawn after a cached sub-screen reads its tile indices as glyph codes and shows garbage.
 - Try paths in order of cost and boot each one. A black-screen-after-logo bug once came from a font patch that was never booted.
 - Users usually prefer engine work to abbreviation, so budget for the bigger change: widen boxes, add lines or pages, move to free space.
 
@@ -124,6 +125,7 @@ Wire all of these into the one-command check (Step 0) so the pre-commit hook run
         rom[off:off + len(data)] = data
     ```
     For a fixed hook site, also assert the original bytes before writing (`assert ORIG[off:off+4] == bytes.fromhex("...")`), so a different revision fails at build time rather than in game.
+  - **Every repointed pointer lands on a block header.** For each word in the original ROM that points at a moved block (script, string bank), assert the built ROM's word points at that block's magic (`PAC3`, a length header, whatever the format has). Search with flag bits masked: tables often keep flags in the top bits of the pointer (GetBackers GBA map tables: `0x88xxxxxx` NPC talk, `0x18xxxxxx` door scripts, read as `& 0x0FFFFFFF`), so a repointer that matches exact `0x08xxxxxx` words misses them. Keep the flag bits when writing the new address. In GetBackers this missed 74 NPC/door events: talking to one NPC gave a permanent black screen, and the script tour never saw it because it starts scripts directly. Search every data range for them, not only the code literal pools; these tables sat just past the range the build scanned.
   - Free-space overflow raises an error instead of silently wrapping.
   - Graphics chunks stay inside the windows the code can reach.
 - **Leftover Japanese:**
