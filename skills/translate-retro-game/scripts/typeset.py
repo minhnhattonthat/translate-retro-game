@@ -1,21 +1,28 @@
 """Draw English text into a transparent RGBA canvas for replacing Japanese text images.
 Library: text_image(w, h, text, ...) -> PIL RGBA;  fit(...) picks the largest size that fits;  FONTS = name -> path
 Style knobs: font, size (None = fit), fill, stroke (width, colour), shadow, xscale (horizontal squeeze for condensed styles),
-align (l/c/r), valign (t/m/b), spacing (line gap), tracking."""
+align (l/c/r), valign (t/m/b), spacing (line gap), tracking.
+Fonts come from the game repo's fonts/ folder (env TYPESET_FONTS overrides), never C:/Windows/Fonts: the patch
+ships them, so they must be open-licence files committed with their licence and listed in docs/fonts.md. A style
+name maps to a file name below; a path works too."""
 import os
 from PIL import Image, ImageDraw, ImageFont
 
-WIN = 'C:/Windows/Fonts/'
+FONT_DIR = os.environ.get('TYPESET_FONTS', 'fonts')
 FONTS = {
-    'serif-b': WIN + 'timesbd.ttf', 'serif': WIN + 'times.ttf', 'georgia-b': WIN + 'georgiab.ttf', 'cambria-b': WIN + 'cambriab.ttf',
-    'book-b': WIN + 'BOOKOSB.TTF', 'sans-cond-b': WIN + 'ARIALNB.TTF', 'sans-cond': WIN + 'ARIALN.TTF', 'sans': WIN + 'arial.ttf',
-    'sans-b': WIN + 'arialbd.ttf', 'bahn': WIN + 'bahnschrift.ttf', 'mono-b': WIN + 'courbd.ttf', 'segoe': WIN + 'segoeui.ttf',
-    'segoe-b': WIN + 'segoeuib.ttf', 'impact': WIN + 'impact.ttf',
+    'serif-b': 'LiberationSerif-Bold.ttf', 'serif': 'LiberationSerif-Regular.ttf',
+    'sans-b': 'LiberationSans-Bold.ttf', 'sans': 'LiberationSans-Regular.ttf',
+    'sans-cond-b': 'LiberationSansNarrow-Bold.ttf', 'sans-cond': 'LiberationSansNarrow-Regular.ttf',
+    'mono-b': 'LiberationMono-Bold.ttf', 'impact': 'Anton-Regular.ttf',
 }
 _cache = {}
 def font(name, size):
     k = (name, size)
-    if k not in _cache: _cache[k] = ImageFont.truetype(FONTS.get(name, name), size)
+    if k not in _cache:
+        path = name if os.path.exists(name) else os.path.join(FONT_DIR, FONTS.get(name, name))
+        if not os.path.exists(path):
+            raise FileNotFoundError(f'{path}: put an open-licence font there (and its licence; list it in docs/fonts.md)')
+        _cache[k] = ImageFont.truetype(path, size)
     return _cache[k]
 
 def _measure(lines, f, spacing, tracking):

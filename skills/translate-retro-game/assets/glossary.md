@@ -3,7 +3,8 @@
 Binding for every translator and reviewer. Agents propose additions in reports; only the controller edits this file.
 
 ## Rulings (asked of the user once; record date)
-- Honorifics: <kept, hyphenated (Johannes-san) | dropped>. Name order: <JP | Western>.
+- Honorifics: <kept, hyphenated (Johannes-san) | dropped>. Name order: <JP | Western>. The ruling also covers titles
+  and family terms: 先生 (Maria-sensei | Ms. Maria), 先輩 (-senpai), お姉ちゃん/兄貴 (onee-chan | sis), nickname 〜クン.
 - Romanisation source: <official art / anime / Hepburn>.
 - Credits: <stay kanji | English>.
 - Register / flavour: <e.g. keep light JP flavour>. Sound effects: <*Slam!*>.

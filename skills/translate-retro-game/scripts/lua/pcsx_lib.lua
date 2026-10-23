@@ -25,11 +25,13 @@ end
 -- Errors inside event listeners only reach the log: wrap every callback so errors exit 2.
 function L.safe(fn) return function(...) local ok, e = pcall(fn, ...); if not ok then L.fail(e) end end end
 -- Breakpoints need the debugger and the interpreter: emu.py --debugger. Keep the returned objects alive. The
--- invoker returns false so the emulator keeps running (true, or nil, pauses it).
+-- invoker resumes the emulator (a hit pauses it) and returns true to keep the breakpoint: false removes it after
+-- one hit (tested: a hook on 0x80000080 fired once in 400 frames with false, 1102 times with true).
 local bps = {}
 local function bp(addr, kind, width, fn)
   local cb = L.safe(fn)
-  bps[#bps + 1] = PCSX.addBreakpoint(addr, kind, width, "emu.py", function(...) cb(...); return false end)
+  bps[#bps + 1] = PCSX.addBreakpoint(addr, kind, width, "emu.py",
+                                     function(...) cb(...); PCSX.resumeEmulator(); return true end)
 end
 function L.on_exec(addr, fn) bp(addr, "Exec", 4, fn) end
 function L.on_read(lo, hi, fn) bp(lo, "Read", hi - lo + 1, fn) end   -- fn(addr, width, cause)

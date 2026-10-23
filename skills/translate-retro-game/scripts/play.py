@@ -5,12 +5,15 @@
     python play.py SESSION --wait 300                             no presses: just wait
     python play.py SESSION --back N                               undo the last N steps
     python play.py SESSION --export REPORT.md [--bugs docs/bugs.md] [--to DIR]   file the playtester's report
+    python play.py SESSION --route [N]                            the presses of steps 0..N as one emu.py --route-str
 
 A press is BUTTONS[*FRAMES]: "a", "a+up", "-" for none, held FRAMES frames. Buttons: SNES/GBA a b (x y) l r start
 select up down left right; NDS adds lid, t<x>,<y>; PS1 cross circle square triangle l1 r1 l2 r2 ...;
 (default 6), then --gap idle frames before the next press; --wait idle frames after the last one.
 Prints the new step's screenshot (screens up to 480 px wide upscaled x2): read it, decide, call again.
-PS1: --bios (else emu.py's env PSX_BIOS / tools/bios lookup) is kept in SESSION/bios.txt for every later call.
+PS1: --bios (else emu.py's env PSX_BIOS / tools/bios lookup) is kept in SESSION/bios.txt for every later call;
+--sav is copied to SESSION/card.mcd, which every step boots with and keeps the game's writes in (the card is not
+part of a savestate).
 PSP: SESSION/memstick is the session's own memstick: empty (a new console) unless --sav seeds it on the new session.
 SESSION holds rom.txt, NNNN.<state>, NNNN.png and log.tsv (step, presses), so a report can cite steps.
 --every N also shoots every N frames during the step and prints contact sheets of 12 frames each first
@@ -19,6 +22,9 @@ SESSION holds rom.txt, NNNN.<state>, NNNN.png and log.tsv (step, presses), so a 
 dir) and copies the cited steps' shots, sheets and states to --to (default work/playtest/<session name>, or
 work/playtest/<session name>-bugs when the session itself lives there). Ranges
 "step 0038-0050" copy both ends. Run it from the game repo.
+--route replays a session on another build (the fixed ROM, or the original to tell a translation bug from the
+game's own): emu.py OTHER_ROM --out D --route-str "<output>" with the session's start (--sav/--state), shooting
+at the end; on a build with other text lengths a press can land on another page, so check the shots line up.
 Exit codes as emu.py.
 """
 import argparse, datetime, glob, hashlib, os, re, shutil, subprocess, sys
@@ -89,6 +95,7 @@ def main():
     ap.add_argument("--export", metavar="REPORT")
     ap.add_argument("--bugs", default=os.path.join("docs", "bugs.md"))
     ap.add_argument("--to")
+    ap.add_argument("--route", nargs="?", const=-1, type=int, metavar="N")
     a = ap.parse_args()
     sess = a.session
 
@@ -109,6 +116,11 @@ def main():
         if os.path.abspath(to) == os.path.abspath(sess):  # session already under work/playtest: copying onto itself fails
             to += "-bugs"
         export(sess, rom, a.export, a.bugs, to)
+        return
+
+    if a.route is not None:
+        rows = [ln.split("\t") for ln in open(os.path.join(sess, "log.tsv"), encoding="utf-8").read().splitlines()]
+        print(";".join(r[2] for r in rows if a.route < 0 or int(r[0]) <= a.route))
         return
 
     if a.back:
@@ -134,8 +146,14 @@ def main():
     shutil.rmtree(out, ignore_errors=True)
     cmd = [sys.executable, "-X", "utf8", os.path.join(HERE, "emu.py"), rom, "--out", out, "--route-str", r,
            "--state-out", os.path.join(sess, f"{new:04d}.{ext}")]
+    card = os.path.join(sess, "card.mcd")
+    if new == 0 and a.sav and ext == "sstate":
+        shutil.copy(a.sav, card)
+    if ext == "sstate" and os.path.exists(card):  # PS1: states don't hold the memory card; boot every step with it
+        cmd += ["--sav", card]
+    elif new == 0 and a.sav:
+        cmd += ["--sav", a.sav]
     if new == 0:
-        cmd += ["--sav", a.sav] if a.sav else []
         cmd += ["--state-in", a.state] if a.state else []
     else:
         cmd += ["--state-in", os.path.join(sess, f"{n:04d}.{ext}")]
@@ -148,6 +166,8 @@ def main():
     res = subprocess.run(cmd, capture_output=True, text=True)
     if res.returncode:
         sys.exit(res.stdout + res.stderr + f"\nemu.py exit {res.returncode}; session unchanged")
+    if os.path.exists(os.path.join(out, "memcard1.mcd")):  # the step's in-game saves carry on to the next step
+        shutil.copy(os.path.join(out, "memcard1.mcd"), card)
 
     img = sheet.read_png(os.path.join(out, "final.png"))
     png = os.path.join(sess, f"{new:04d}.png")

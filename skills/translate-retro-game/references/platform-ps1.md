@@ -9,10 +9,13 @@
   - Field widths in data records hide flag bytes: zero-filling a whole field wiped flags and gave a black boot, while every test passed. Write only the string bytes. `romdiff`-style checks per file catch this.
 - **EXE and overlays:** armips for hooks.
   - Patch strings in place where possible, never touch the tails of code overlays, and remap `lui`/`addiu` pairs when moving strings.
+  - MIPS immediates sign-extend: `sltiu`/`addiu` with 0x8000-0xFFFF compare or add a negative number (`sltiu ...,0x8800` never matched; `addiu 0xb2f4` jumped to 0x8005b2f4 and hung boot). Use `ori` to build an unsigned low half, and `lui` + `addiu` with the high half rounded up when the low half is ≥ 0x8000.
+  - armips `equ` is textual substitution: `-PADIDX` with `PADIDX equ A+B` becomes `-A+B`. Parenthesise every `equ` value.
+  - Unit-test asm hooks (e.g. under unicorn) with exact-PC asserts: a test that accepted any fetch fault passed a hook that hung the game.
   - Keep a committed `tools/re.py` (capstone disassembly, xref of `lui/addiu` pairs, savestate RAM read) instead of re-importing capstone inline in throwaway scripts.
 - **Text:** Shift-JIS, so use `jp_left.py --sjis`. Half-width ASCII may need a font/renderer patch.
 - **Windows:** check the box size (e.g. 30 chars × 3 lines). Give agents the soft limit; if the build splits overflow into a second window, pacing breaks.
 - **FMV subtitles (STR):** burn ASS subtitles with ffmpeg and re-insert with jPSXdec `-replaceframes`. For timing with faster-whisper, turn VAD **off**; with it on, lines went missing.
 - **Names stored in save files** need fixing on load, or old saves show old names.
-- **Emulator:** `emu.py game.cue` (BIOS: `scripts/fetch_emu.py psx-bios` once, used automatically; or `--bios FILE`) drives PCSX-Redux headless (see `setup.md` and `emulator-qa.md` §PCSX-Redux; SPU muted at 8x speed, take savestates on quiet screens, `--sav card.mcd` for a memory card). DuckStation savestates (for user-sent bug states) are a header plus zstd frames.
+- **Emulator:** `emu.py game.cue` (BIOS: `scripts/fetch_emu.py psx-bios` once, used automatically; or `--bios FILE`) drives PCSX-Redux headless (see `setup.md` and `emulator-qa.md` §PCSX-Redux; SPU muted at 8x speed, take savestates on quiet screens, `--sav card.mcd` for a memory card). Japanese games confirm with circle (`--mash-key circle`). Ask users for a memory card, not DuckStation savestates: those can't be loaded here. States go stale when a rebuild shifts file LBAs; regenerate them.
 - **Release:** xdelta against the **.bin** only. No .cue in the zip; PATCHING.txt tells the player to keep their own cue.

@@ -1,7 +1,9 @@
 # Playtester brief - <Game title>
 
 You play a translated build turn by turn and report what a player would trip over. Play only: no edits to the
-repo, no git, no subagents. Return the report as your final message; the controller saves it.
+repo, no git, no subagents. The moment you find an issue, append its checklist line (format under Report) to
+`SESSION/report.md` with your file-write tool, so it survives if your run stops early; then return the whole report
+as your final message.
 
 ## Inputs (in your dispatch)
 - ROM (build under test), a session dir of your own, and a goal: "from the title, play until the first battle ends",

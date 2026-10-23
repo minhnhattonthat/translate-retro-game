@@ -201,6 +201,11 @@ def run_psp(a):
 
 
 def run(a):
+    if a.state_in and os.path.exists(a.state_in):
+        built = max(os.path.getmtime(f) for f in glob.glob(glob.escape(os.path.splitext(a.rom)[0]) + ".*") + [a.rom])
+        if os.path.getmtime(a.state_in) < built:  # stale states looked like translation bugs (garbled, frozen boxes)
+            print(f"warning: {a.state_in} is older than the ROM; it carries the old build's code and text pointers",
+                  file=sys.stderr)
     ext = os.path.splitext(a.rom)[1].lower()
     if ext in (".iso", ".cso") and is_psp(a.rom):
         return run_psp(a)

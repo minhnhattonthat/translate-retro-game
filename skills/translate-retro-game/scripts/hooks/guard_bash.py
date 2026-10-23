@@ -7,6 +7,7 @@
    it stops the shell, but Python itself turns "\\n" in a replacement string into a real newline.
 3. Test output piped through tail/head in front of `&& git commit` - the pipe's exit code is tail's, so failing
    tests committed.
+4. `gh release create|upload` while `qa_gate.py check` fails on work/qa/ (see release_gate).
 
 Reading and analysis scripts (heredoc or -c) stay allowed; writing a source file goes through the file-edit tool.
 Exit 2 + stderr = the call is blocked and the message is shown to the agent. Copy this file to the repo's
@@ -52,6 +53,29 @@ def check(cmd):
     return None
 
 
+def release_gate(cmd, cwd):
+    """4. A GitHub release only after the visual-QA gate passes: one went public without it, and the gate then
+    found two wrap bugs (a second release to fix them)."""
+    if not re.search(r"\bgh\s+release\s+(create|upload)\b", cmd):
+        return None
+    import contextlib, io, os
+    man, vdir = os.path.join(cwd, "work", "qa", "manifest.tsv"), os.path.join(cwd, "work", "qa", "verdicts")
+    if not os.path.exists(man):
+        return ("No visual-QA manifest (work/qa/manifest.tsv): run the QA tour and qa_gate.py before a release "
+                "(SKILL.md phases 8-9). If the user wants to publish anyway, they can run the command themselves.")
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+    try:
+        import qa_gate
+    except ImportError:  # a copy of this hook outside $SKILL/scripts/hooks: no gate, never a crash
+        return None
+    with contextlib.redirect_stdout(io.StringIO()) as out:
+        rc = qa_gate.check(man, vdir)
+    if rc:
+        return ("qa_gate.py check fails, so this release is blocked:\n" + "\n".join(out.getvalue().splitlines()[-6:])
+                + "\nFinish visual QA first; if the user wants to publish anyway, they can run the command themselves.")
+    return None
+
+
 if __name__ == "__main__":
     if sys.argv[1:] == ["--selftest"]:
         bad = [
@@ -84,13 +108,18 @@ if __name__ == "__main__":
             assert check(c), c
         for c in ok:
             assert not check(c), (c, check(c))
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            assert "No visual-QA manifest" in release_gate("gh release create v1.0 x.zip", d)
+            assert release_gate("gh release view v1.0", d) is None
         print("selftest ok")
         sys.exit(0)
     try:
-        cmd = json.load(sys.stdin).get("tool_input", {}).get("command", "")
+        data = json.load(sys.stdin)
+        cmd = data.get("tool_input", {}).get("command", "")
     except ValueError:
         sys.exit(0)
-    msg = check(cmd)
+    msg = check(cmd) or release_gate(cmd, data.get("cwd") or ".")
     if msg:
         print(msg, file=sys.stderr)
         sys.exit(2)

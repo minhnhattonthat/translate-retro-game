@@ -23,7 +23,8 @@ How to turn extracted Japanese into reviewed English with parallel agents (subag
    - target register.
 2. **Pilot:** translate one short slice yourself (a prologue, ~10 scripts, one bank), insert it, boot it, and let the user approve it in-game. Turn the approved lines into `docs/style-reference.md`: a voice table per character plus paired JP/EN examples, including one corrected example. A ten-script pilot was enough to become the reference every later agent matched.
 3. **Seed the glossary** from what already exists: an earlier patch's English, the game's item/skill/name tables, official localizations of the series, and the pilot.
-4. **Write `docs/synopsis.md` for a story game:** the plot by chapter, routes and branches, who is who, relationship changes and late reveals (a disguised character, a traitor, a twist on a name). Build it from guides, wikis and a read of the extracted script, and put it on the translator brief's read list. A translator who only sees one batch can't know that the friendly merchant turns out to be the villain, and gives the early lines the wrong tone or gives away the reveal. Guides tell you the order and who is who; the extracted script decides the wording.
+4. **Terms pass before wave 1.** Scan every batch for recurring proper nouns: katakana runs, kanji compounds, 『』/「」-quoted names, and term families (tier suffixes 弱/中/強, 小/中/大, "all"/team forms). Any that appear in two or more batches and aren't in the glossary get one translation now, in the glossary, with the family rule ("S/M/L tiers: 1/2/3"). Without it, parallel batches drifted (Kujaku/Peacock, Hiranipura/Hiranipla, ~20 mismatches in nine batches) and needed sed-and-remerge rounds.
+5. **Write `docs/synopsis.md` for a story game:** the plot by chapter, routes and branches, who is who, relationship changes and late reveals (a disguised character, a traitor, a twist on a name). Build it from guides, wikis and a read of the extracted script, and put it on the translator brief's read list. A translator who only sees one batch can't know that the friendly merchant turns out to be the villain, and gives the early lines the wrong tone or gives away the reveal. Guides tell you the order and who is who; the extracted script decides the wording.
 
 ## Batch design
 
@@ -36,7 +37,12 @@ How to turn extracted Japanese into reviewed English with parallel agents (subag
 - **Output format:** `id<TAB>EN`, or a JSON object `{"id": "EN"}`, written with the agent's **file-write tool**, never a shell heredoc.
   - The output must be plain ASCII, with `\n` only where a break must fall.
   - Accept TSV output in the merge tool: agents often write TSV to avoid quote escaping.
-- **Generate batches with a tool** (`tools/batches.py split`), never by hand. Write per-batch term lists alongside (`build/terms_<batch>.txt`, the glossary rows whose JP appears in the batch) so agents don't each read a 40 KB glossary.
+- **Generate batches with a tool** (`tools/batches.py split`), never by hand. Write per-batch term lists alongside (`build/terms_<batch>.txt`, the glossary rows whose JP appears in the batch) so agents don't each read a 40 KB glossary. Rules every project's `batches.py` relearned:
+  - skip entries with empty JP: they are not "untranslated" and get re-queued forever otherwise;
+  - number batches from b001 on every run and refuse to overwrite existing batch files (a "show tail" call once created duplicate batches b032–b060);
+  - match glossary terms only on whole kana/kanji runs, never as substrings (ミン inside タイミング, くも inside ぼくも);
+  - keep entries that share a fragment (one string split around a number the game draws, `dup` ids) in one batch, or translate the shared pieces first: three batches used three conventions for the same fragments;
+  - the encodable-character check reads the project table, not plain ASCII (♥ was a table glyph).
 
 ## Translator dispatch
 
@@ -62,7 +68,8 @@ How to turn extracted Japanese into reviewed English with parallel agents (subag
 - non-ASCII or unencodable characters, tabs, `\uXXXX`;
 - over-limit width per the box's real limit (pixels for VWF, bytes otherwise);
 - glossary violations (a JP term present but its EN form missing; spellings from the "Avoid" column);
-- an ordinal suffix right after a variable (`\[var[^\]]*\](st|nd|rd|th)\b`).
+- an ordinal suffix right after a variable (`\[var[^\]]*\](st|nd|rd|th)\b`);
+- when the glossary keeps honorifics: a JP honorific or title (〜さん, 〜くん, 先生, 先輩, お姉ちゃん, 兄貴) without its ruled EN form. "Ms. Maria" for マリア先生 and 先輩 as "the president" were caught by the user, 25 lines in one game.
 
 The merge refuses bad batches. The build/lint stays the hard gate.
 

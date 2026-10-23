@@ -12,6 +12,7 @@ Distilled from eight finished fan translations across SNES, GBA, NDS and PS1. Re
 - Pitfalls that reached a user's playtest
 - Building on an earlier patch
 - Release
+- Publish
 
 ## Repo layout and text format
 
@@ -64,6 +65,10 @@ Unpack → repack with no edits → compare bytes. Make this the first test in t
 - **Coverage test, run against the ORIGINAL ROM:** the text ranges are fully covered, with no unexplained gaps. A gap is usually text you missed, or data you are about to corrupt.
   - Dump every pointer target, including strings referenced from the EXE, arm9/overlays or code banks, not only the script banks.
   - An unknown control code must not end a string: decode it as `[XX]` and keep going, then check the next bytes still decode. Strings silently cut at the first unknown code left the rest Japanese.
+  - Punctuation-only lines (`……`, `！！！`, `・・・！`) are text: the game draws them in Japanese punctuation. Filters that skip lines starting with punctuation left 170 of them in one game.
+  - Don't assume pointer alignment: an extractor that took only 4-aligned pointers skipped event messages at 2-aligned offsets.
+  - Code can reach strings with no pointer of their own: base + immediate (`adds rX,#imm`, a literal offset added to a table base), or glyph codes built as instruction immediates (`LDA #tile` / `STA buf,x` chains; `mov rX,#code` before a store). The marker build shows these as the Japanese that stays; grep code for the codes as immediates.
+- **Leading and trailing spaces are part of the text.** A fullwidth `　` indent made room for a cursor (the English sat under it), and a trailing space joined "Level rose to " to a number. Parsers must not strip, and the lint checks that EN keeps every leading/trailing blank the JP has.
 - **Space-padded fixed-length strings** (names, item fields) get re-padded to their length on insert; the game may compare or centre them by length.
 - **Mark non-text explicitly.** Data that decodes as text, translated by mistake, has broken games repeatedly:
   - portrait data dumped as "text" gave miscoloured portraits;
@@ -81,7 +86,7 @@ Unpack → repack with no edits → compare bytes. Make this the first test in t
   - half-width;
   - VWF;
   - tiny 2-letters-per-tile font;
-  - digraph glyphs when the renderer ignores advance widths. Each letter gets half the cell, so no letter may be wider than half the cell minus any shadow or outline the game adds (12 px cell + 1 px shadow: 5 px). A wider letter runs into its neighbour (GetBackers: a 7 px M made "Ma" read "Mb"). Assert the width in the encoder self-test.
+  - digraph glyphs when the renderer ignores advance widths. Each letter gets half the cell, so no letter may be wider than half the cell minus any shadow or outline the game adds (12 px cell + 1 px shadow: 5 px). A wider letter runs into its neighbour (GetBackers: a 7 px M made "Ma" read "Mb"). Assert the width in the encoder self-test. Names and variables the game inserts at runtime have odd lengths too: an odd-length name leaves a half-cell gap after it ("Doggy  defeated!", "Hiyuu -kun"). Give the encoder a half-width pad glyph, or join the halves where strings are concatenated, and put odd-length default names in the marker build.
   - If you build a glyph cache (English cells loaded on demand into a screen's tile area), it must turn itself off whenever a plain (uncached) charset loads at the same tiles. Otherwise a screen redrawn after a cached sub-screen reads its tile indices as glyph codes and shows garbage.
 - Try paths in order of cost and boot each one. A black-screen-after-logo bug once came from a font patch that was never booted.
 - Users usually prefer engine work to abbreviation, so budget for the bigger change: widen boxes, add lines or pages, move to free space.
@@ -100,6 +105,13 @@ Then boot a **glyph torture line**: all printable ASCII plus double spaces, so m
 
 Measure every game fresh; limits from another game, even the same engine, have been wrong. The lint warns on any line whose box variant has no measured budget yet.
 
+Never derive a limit from the Japanese length. Limits guessed that way (a 16-character name cap, "~57 px like the JP name") shipped overflow in three games, found by players. How to measure:
+- **List fields** (items, skills, names in a menu row): the budget is the x of the next thing drawn on the row (count, price, cost, a divider) minus the field's x, read off a shot showing the longest name.
+- **One string, several screens:** it takes the smallest budget among them (a name in the menu, the shop and the battle window).
+- **Windows the script opens or resizes** (an open-window opcode with a size argument): scan the script for those opcodes and give their lines per-entry limits. A 20-character box once got the default 30.
+- **Scrolling and paged views** (encyclopedia, help, logs): scroll the longest marker to its last line. The scroll or page limit is often a separate table sized from the Japanese line counts; one article stopped scrolling before its end.
+- Tag each limit in the window data as measured (with the shot) or guess. A LONG line against a guessed limit means measure it, not abbreviate.
+
 **Done when** every variant has a measured budget and the torture line renders correctly.
 
 ## Checks
@@ -112,7 +124,9 @@ Wire all of these into the one-command check (Step 0) so the pre-commit hook run
   - control-code multiset JP == EN;
   - ASCII/encodable;
   - glossary terms (JP term present ⇒ EN form required; an "Avoid" column for banned spellings);
-  - no ordinal suffix after a variable.
+  - no ordinal suffix after a variable;
+  - non-empty `jp` with empty `en` fails, unless the id is in a committed keep-list (`script/keep_jp.txt`, one id and reason per line). "Intentional blanks" silently shipped 41 Japanese fields in one game;
+  - leading and trailing blanks match the JP (see §Extract).
 - **Stub last lines:** fail a multi-line paragraph whose last line is under ~6 characters (one orphaned syllable or word). It is mechanical, so the lint catches it and no reviewer has to.
 - **Tests build their own ROM.** Build into a temp path inside the test (a module-scope fixture per language) instead of reading `build/*.sfc`: a stale artifact passes while the source is broken, and a missing one makes the test skip silently.
 - **Keep output quiet.** Print errors and a count, and roll known-OK warnings into one summary line. A check that printed 2,476 warnings got grepped away by the agent, real ones included.
@@ -126,14 +140,18 @@ Wire all of these into the one-command check (Step 0) so the pre-commit hook run
     ```
     For a fixed hook site, also assert the original bytes before writing (`assert ORIG[off:off+4] == bytes.fromhex("...")`), so a different revision fails at build time rather than in game.
   - **Every repointed pointer lands on a block header.** For each word in the original ROM that points at a moved block (script, string bank), assert the built ROM's word points at that block's magic (`PAC3`, a length header, whatever the format has). Search with flag bits masked: tables often keep flags in the top bits of the pointer (GetBackers GBA map tables: `0x88xxxxxx` NPC talk, `0x18xxxxxx` door scripts, read as `& 0x0FFFFFFF`), so a repointer that matches exact `0x08xxxxxx` words misses them. Keep the flag bits when writing the new address. In GetBackers this missed 74 NPC/door events: talking to one NPC gave a permanent black screen, and the script tour never saw it because it starts scripts directly. Search every data range for them, not only the code literal pools; these tables sat just past the range the build scanned.
-  - Free-space overflow raises an error instead of silently wrapping.
+  - **Every table the build writes, writes all its entries:** assert per table that the count written equals the entries with English. One insert step skipped a whole table (its field was named differently) and only a playtest found it.
+  - **A code hook doesn't swallow a branch target.** For each overwritten code span, disassemble ±4 KB around it and fail if any branch or call (B/Bcc/BL, JMP/JSR/BRA, `j`/`jal`/`b*`) lands strictly inside the span: the game still jumps there into your hook's middle. A menu hook over E5A4–E5B1 ate the newline branch's target at E5AA, and every multi-line menu string lost its later lines.
+  - **Relocated strings leave no reader behind:** after moving strings, scan the original ROM's code for references to each vacated address (16/24-bit literals, split bank + offset immediates like 65816 `LDA #bank` / `LDY #ptr`, ARM literal pools, MIPS `lui`/`addiu` pairs) and fail on any the build didn't rewrite. A stale `LDA #$85` left one game's Load screen black.
+  - Free-space overflow raises an error instead of silently wrapping. Assembler blocks can collide too: with asar, end each free-space block with `warnpc <next block's start>` (a new `org` silently overwrote the VWF width table and froze the game).
   - Graphics chunks stay inside the windows the code can reach.
 - **Leftover Japanese:**
   - text side: regex `[぀-ヿ一-鿿]` over every `en`;
   - ROM side: `scripts/jp_left.py`. Best: `--slots FILE` listing every pointer slot your insert step writes, so only text a pointer reaches is reported (on one game 185 `--gba-ptrs` hits became 0 real ones); `--known FILE` lists intended-Japanese offsets to skip. On GBA without a slot list, run `--gba-ptrs` **without** `--orig`. Relocation leaves the old Japanese unreferenced, and broken pointers can land mid-line in it; `--orig` hides that case, because the bytes the pointer lands on differ from what was at that offset originally. Add `--halfwidth` for debug and system text, then triage, since it is noisier;
   - runtime side: the draw-hook scan (`emulator-qa.md`).
   - A text-side check alone once passed with 3 Japanese lines still reachable behind a pointer table.
-- **Release gate:** lint → roundtrip → build → tests → smoke → `jp_left.py` → the screen tour (`emulator-qa.md` §Screen tour), stop at the first failure. The release script runs the tour itself (with an opt-out flag for iteration), so a release cannot skip it.
+  - Run `jp_left.py` on the marker build too (phase 5), not only at release: what it finds there is text the extractor missed, found before translation instead of after.
+- **Release gate:** lint → roundtrip → build → tests → smoke → `jp_left.py` → the screen tour (`emulator-qa.md` §Screen tour) → `qa_gate.py check`, stop at the first failure. The release script runs the tour itself (with an opt-out flag for iteration), so a release cannot skip it.
 
 ## Pitfalls that reached a user's playtest
 
@@ -151,6 +169,8 @@ Check for these before handing a build over:
 - Name entry: the letter grid and the confirmed name can come from different assets (a pre-rendered grid image, the font for the name). Changing one left the other Japanese or mismatched. Check the grid, editing, the confirmed name, its later redisplay in dialogue and menus, and the default name when the player confirms an empty entry.
 - Headers and labels sat off-centre, and grey-out (disabled item) spans covered the wrong letters: both come from per-label tables sized for Japanese. Re-centre and regenerate the span tables from the English widths.
 - Timers, counters and other digits the code draws were "translated". Keep native digits the code writes; translate only the text around them.
+- Code that centres or steps by glyph count × a fixed cell width breaks with VWF or digraph text: choice rows computed `x = box + 40 − 6 × cells` (options off-centre or missing, 3 user reports), and a name-entry cursor moved in 12 px steps over proportional letters. Hook the shared routine to use pixel widths. Keep a fullwidth space the cursor sits in at its original width.
+- A format string sized for a Japanese label (`%s    %02d:%02d`, a 3-tile label) shifted the rest of the row: pad the English label to the same tile count, or change the format.
 
 Tool-side pitfalls:
 - JSON written on Windows got CRLF and churned every diff: open writers with `newline='\n'`.
@@ -181,4 +201,14 @@ When an older fan patch exists and the user wants to build on it:
   - known issues, credits (respect prior patch authors), AI-assistance disclosure;
   - "unofficial, no pre-patched ROMs".
 - Zip = patch(es) + README/PATCHING.txt only, with no .cue. Name it `Game_EN_vX.Y.bps`. Use ZIP_STORED for xdelta.
+- **`tools/release.py`** runs, stopping at the first failure: build → tests → smoke → `jp_left.py` → `qa_gate.py check` → debug tool off in this build → patch → re-apply to a clean original and compare → zip. It handles `--help` without building, and refuses to overwrite an existing version's files without `--force` (a `--help` call once overwrote a released patch). Keep the playable patched image in `build/` (the user tests from it); the zip holds only the patch.
 - Release dirs stay local and gitignored. Publishing is the user's call.
+
+## Publish (only when the user asks)
+
+Each repo re-derived these steps; they are the same every time.
+1. Owner: the account the user names. If they named none, use the owner of the sibling game repos (the template's), and confirm before creating anything: one repo was created under the wrong account. Push with that account's token (`GH_TOKEN=$(gh auth token --user <owner>)`, or `git -c credential.helper='!gh auth git-credential' push`) when the SSH key belongs to another account.
+2. Repo `<game-slug>-en`, public, with topics (`fan-translation`, `rom-hack`, the platform). README, LICENSE and `.github/FUNDING.yml` come from the template.
+3. History holds no ROM, save, savestate or disc image: `git log --all --stat` and check the extensions.
+4. `git fetch` and rebase before pushing.
+5. `gh release create vX.Y <zip> --title ... --notes-file notes.md`, notes with the base ROM hashes and the patch SHA-1. The guard blocks it until `qa_gate.py check` passes. If the user runs it themselves, give the command as one line.

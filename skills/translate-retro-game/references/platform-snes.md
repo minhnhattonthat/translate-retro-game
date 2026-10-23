@@ -11,7 +11,8 @@
   - Recompressed blocks that no longer fit go to the expanded area, still never crossing a bank.
 - **Assemblers:**
   - asar (most patches), xkas-plus, or WLA-DX for disassembly-based builds.
-  - asar: pass `--fix-checksum=off` (the release step owns the checksum), force operand size (`lda.w`) where it matters, and parenthesise expressions explicitly; asar's precedence surprised past patches.
+  - asar: pass `--fix-checksum=off` (the release step owns the checksum), force operand size (`lda.w`) where it matters, and parenthesise expressions explicitly; asar's precedence surprised past patches. Branch and jump to labels, not numeric long targets (`bra $03CE2A` assembled to wrong bytes); disassemble every hook with `dis65816.py` after the build. End each free-space block with `warnpc` (`pipeline.md` §Checks).
+  - Text built in code: menus and battle commands can be written as `LDA #tile` / `STA buf,x` chains (`A9 tt 8D/9D lo hi`) with no string anywhere. Scan code for those chains whose immediates decode to kana through the table; one game's battle command labels lived only there.
   - With a disassembler that emits WLA source, emit the header as data, never `.SNESHEADER`/`.BASE`, so the identity build stays exact.
   - Point Makefile tool variables (`WLA ?=`) at the in-repo `tools/` copy, not at a path from someone else's machine.
 - **Fonts:**

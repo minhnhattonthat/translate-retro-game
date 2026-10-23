@@ -19,6 +19,9 @@ Failures from other translation projects, found by what you see rather than by c
 | An item's name shows but using the item fails | The label's address was also the item's ID for comparisons | Grep code for the old address as a constant before moving labels |
 | Only one rare branch corrupts | It reads a table-tail entry the extractor dropped | Extract and rewrite fixed tables whole |
 | Several growing regions leave some pointers wrong or adjusted twice | Shifts computed on a partly patched buffer | Plan every shift in original coordinates, apply from the end backward |
+| One translated string freezes a later, unrelated screen, or a name comes out cut ("Piyori") | The string is copied into a fixed RAM field or save-data slot sized for the Japanese | Bisect: build with half the entries translated, warp to the screen, repeat; then a per-id byte cap in the lint |
+| A Yes/No prompt crashes, or "No" draws past the window | The wrap tool rewrote the line break before the choice (plain newline → indent code) | Keep every control code before a choice exactly as in the JP; lint the line structure in front of choices |
+| A label stays Japanese, but no string or pointer for it exists | The code builds it from glyph codes in instruction immediates | Grep code for the codes as immediates (`pipeline.md` §Extract) |
 
 ## Compression and assets
 
@@ -46,6 +49,8 @@ Failures from other translation projects, found by what you see rather than by c
 | Changing one glyph or tile damages other labels or digits | The slot has several readers | Find every screen using it before editing in place (`vramfind.py --others`) |
 | The selection highlight covers only the first few letters | Highlight width came from the source string's length, not the highlight data alone | Patch the length the code reads, too |
 | Glyphs fit their cells but are clipped in game | The renderer draws fewer rows than the cell has | Measure the drawn ink rows; lint glyph height against them |
+| A second cursor or old arrow stays on screen | The VWF skips blank pixels, so the blank glyph meant to erase the old arrow draws nothing | Draw blank glyphs opaque (background colour) |
+| A symbol (♫) or a save-slot label (持金) draws as garbage after freeing "unused" kanji tiles | Something still drew those tiles: stitched fragments, system messages, labels outside the script | Build the keep-set from every text source (script, code strings, system messages, fragments, labels); test that each glyph in it keeps its tiles |
 
 ## Discs and platforms
 
@@ -68,3 +73,5 @@ Failures from other translation projects, found by what you see rather than by c
 | Each fix breaks a different screen | Rebuilding after every defect, before the rest of the tour was classified | Finish the tour on one build, group defects that share a cause, then rebuild and rerun the same routes |
 | Removing the suspected hook doesn't change the bug | Wrong suspect (it was a WRAM collision) | Treat that as ruling out a single cause, not as proof it's innocent in combination |
 | A token copied from an earlier patch behaves differently | Same bytes, different meaning in this engine | Confirm each control code in this game |
+| A playtester's bug won't go away whatever you change | It is the original game's behaviour (title art, doubled rows, a black screen after a battle) | Replay the cited step on the original ROM first (`play.py --route`, `emulator-qa.md` §Agent playtest) |
+| A route's presses do nothing from a user's savestate | The state was taken in the title attract demo, which ignores input | Check for a demo before debugging the route; a demo is also a free deterministic test |

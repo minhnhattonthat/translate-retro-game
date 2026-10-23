@@ -53,6 +53,8 @@ For a game repo, commit this to its `.claude/settings.json` instead, so every cl
 "enabledPlugins": { "translate-retro-game@retro-translation": true }
 ```
 
+Enabling the plugin in a repo's settings has loaded the skill without its guard hook in many sessions; the skill's setup step checks that the hook blocks a `sed -i` and tells you when to run `/reload-plugins`.
+
 Manual: copy `skills/translate-retro-game/` into your agent's skills folder (e.g. `~/.claude/skills/`).
 
 The skill loads on its own when you work on a ROM-hacking or game-translation repo, or ask for it by name.

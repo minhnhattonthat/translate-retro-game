@@ -1,12 +1,12 @@
 # <Game title> (<platform>) English translation
 
-Skill: translate-retro-game (<SKILL_DIR>/SKILL.md). Read it before ROM, text or QA work.
+Skill: translate-retro-game; `python tools/skill.py` prints its folder. Read its SKILL.md before ROM, text or QA work. `"$(python tools/skill.py)"` works in bash and PowerShell; never paste a `plugins/cache/<hash>` path.
 
 ## Commands (run from repo root)
 - Build:    `<python -X utf8 build.py>`        -> build/<game>_en.<ext> (checks the dump against `rom.sha1` first)
 - Check:    `<python -X utf8 tools/check.py>`  (tests + lint; the pre-commit hook runs this)
-- Smoke:    `python -X utf8 <SKILL_DIR>/scripts/emu.py build/<game>_en.<ext> --out work/qa/smoke --route tools/routes/boot.txt --smoke`
-- Warp:     `python -X utf8 <SKILL_DIR>/scripts/emu.py build/<game>_en.<ext> --out work/qa/warp --script tools/debug/warp.lua --var "SCENE='<name>'" --frames 900 --sheet` (scenes: `tools/debug/scenes.<ext>`; never ask the user to play to a scene)
+- Smoke:    `python -X utf8 "$(python tools/skill.py)/scripts/emu.py" build/<game>_en.<ext> --out work/qa/smoke --route tools/routes/boot.txt --smoke`
+- Warp:     `python -X utf8 "$(python tools/skill.py)/scripts/emu.py" build/<game>_en.<ext> --out work/qa/warp --script tools/debug/warp.lua --var "SCENE='<name>'" --frames 900 --sheet` (scenes: `tools/debug/scenes.<ext>`; never ask the user to play to a scene)
 - Release:  `<python -X utf8 tools/release.py>` (patch + verify; never publish without the user)
 
 ## Paths
