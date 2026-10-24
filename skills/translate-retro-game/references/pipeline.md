@@ -101,6 +101,8 @@ Translators write to the limits you give them; a guessed limit means a re-fit pa
 - the last line, where the page-wait arrow takes space;
 - menus, labels, item and skill names.
 
+Measure the limit from pixels, not from the engine's cell count: in a zoomed shot, find the last column where a glyph still shows. One game's boxes showed one cell less than the width variable said, so the wrap limit was 4 px too wide. Only lines that landed in that 4-px window got clipped, and they first surfaced in a playtest, across every box type. Test with a line that fills each box to the computed limit exactly.
+
 Then boot a **glyph torture line**: all printable ASCII plus double spaces, so missing glyphs and wrong widths show at once. When the marker build hangs, bisect by tables (half the lines marked, half original) until one entry is left.
 
 Measure every game fresh; limits from another game, even the same engine, have been wrong. The lint warns on any line whose box variant has no measured budget yet.

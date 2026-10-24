@@ -1,6 +1,6 @@
 """Turn-by-turn play for an agent playtester: each call resumes the last savestate, presses, waits, shoots, saves.
 
-    python play.py SESSION --rom ROM [--sav FILE] [--bios FILE] [--wait 600]   new session: cold boot, wait, shoot
+    python play.py SESSION --rom ROM [--sav FILE] [--bios FILE] [--script X.lua --var N=V] [--wait 600]   new session
     python play.py SESSION a down a "right*40" "a+b" [--gap 20] [--wait 60]
     python play.py SESSION --wait 300                             no presses: just wait
     python play.py SESSION --back N                               undo the last N steps
@@ -14,6 +14,8 @@ Prints the new step's screenshot (screens up to 480 px wide upscaled x2): read i
 PS1: --bios (else emu.py's env PSX_BIOS / tools/bios lookup) is kept in SESSION/bios.txt for every later call;
 --sav is copied to SESSION/card.mcd, which every step boots with and keeps the game's writes in (the card is not
 part of a savestate).
+--script/--var (new session only) are kept in SESSION/script.txt and passed to emu.py on every step: a cheat
+(pinned HP, no encounters) that lasts the whole session.
 PSP: SESSION/memstick is the session's own memstick: empty (a new console) unless --sav seeds it on the new session.
 SESSION holds rom.txt, NNNN.<state>, NNNN.png and log.tsv (step, presses), so a report can cite steps.
 --every N also shoots every N frames during the step and prints contact sheets of 12 frames each first
@@ -88,6 +90,8 @@ def main():
     ap.add_argument("--sav", help="new session only: boot with a copy of this battery save / memory card / PSP save folder")
     ap.add_argument("--state", help="new session only: start from this savestate instead of a cold boot")
     ap.add_argument("--bios", help="new session only: PS1 BIOS image, reused by every later call")
+    ap.add_argument("--script", action="append", help="new session only: Lua cheat/probe run on every step (repeatable)")
+    ap.add_argument("--var", action="append", help="new session only: NAME=LUA global for --script (repeatable)")
     ap.add_argument("--gap", type=int, default=20)
     ap.add_argument("--wait", type=int)
     ap.add_argument("--every", type=int, default=0)
@@ -106,6 +110,10 @@ def main():
         open(os.path.join(sess, "rom.txt"), "w").write(os.path.abspath(a.rom))
         if a.bios:
             open(os.path.join(sess, "bios.txt"), "w").write(os.path.abspath(a.bios))
+        extra = [x for s in a.script or [] for x in ("--script", os.path.abspath(s))]
+        extra += [x for v in a.var or [] for x in ("--var", v)]
+        if extra:  # one arg per line: every later step runs with the same scripts
+            open(os.path.join(sess, "script.txt"), "w").write("\n".join(extra))
     rom = open(os.path.join(sess, "rom.txt")).read().strip()
     ext = os.path.splitext(rom)[1].lower()
     ext = STATE_EXT["psp" if ext == ".cso" or (ext == ".iso" and emu.is_psp(rom)) else emu.SYSTEMS[ext]]
@@ -161,6 +169,8 @@ def main():
         cmd += ["--memstick", os.path.join(sess, "memstick")]
     if os.path.exists(os.path.join(sess, "bios.txt")):
         cmd += ["--bios", open(os.path.join(sess, "bios.txt")).read().strip()]
+    if os.path.exists(os.path.join(sess, "script.txt")):
+        cmd += open(os.path.join(sess, "script.txt")).read().splitlines()
     if a.every:
         cmd += ["--shot-every", str(a.every)]
     res = subprocess.run(cmd, capture_output=True, text=True)

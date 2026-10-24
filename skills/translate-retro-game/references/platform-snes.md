@@ -21,6 +21,8 @@
   - The VWF tile buffer gets wiped by window clears and map scroll (a black bar in-game), so test scrolling and menu reopening.
 - **Text engines** often jump (`F2`/`F3`-style goto/call codes) into shared fragments. The extractor must follow jumps, and the encoder must keep fragment addresses valid, or one review fix breaks every jump (seen as "intro stuck at black screen").
 - **Checksum:** complement at `+0x2C`, sum at `+0x2E` of the header (`$FFDC/$FFDE` HiROM, `$7FDC/$7FDE` LoROM). Do it only in the release step.
+- **BG tilemap words:** the tile number is the low 10 bits, so bits 0-1 of the high byte belong to it: `$3E16` is tile `$216`, palette 7, priority set. Reading it as tile `$16` sends you to the wrong VRAM. Mesen's state keys `ppu.layers[n].chrAddress` / `tilemapAddress` are word addresses (×2 for a byte offset into a VRAM dump). Layers whose bases change mid-frame (HDMA) report only the end-of-frame value. When a render shows nothing at the expected place, composite the map's tiles at each 8 KB-aligned base and see which one gives the image.
+- **Graphics shown only during an effect** (cutscene sound effects, flashes): dump VRAM a few frames before and while it shows, then diff the dumps. Tile data is often loaded long before the effect, so the diff points at the tilemap rows that changed. Search the ROM for that map's word sequence to find the effect table.
 - **Emulator:** MesenCE (or Mesen2) via `emu.py` (`.sfc`/`.smc`); see `setup.md`.
 - **Release:** BPS.
 
