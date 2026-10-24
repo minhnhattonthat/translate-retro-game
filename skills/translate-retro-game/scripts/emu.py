@@ -339,6 +339,8 @@ def run(a):
         if restore:
             time.sleep(0.5)
         for path, old in restore:
+            if path == sav and os.path.exists(path):  # keep what the game wrote before putting the old file back
+                shutil.copy(path, os.path.join(out, os.path.basename(path)))
             if old is None:
                 os.remove(path)
             else:
