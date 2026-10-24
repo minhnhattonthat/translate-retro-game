@@ -46,7 +46,7 @@ How to turn extracted Japanese into reviewed English with parallel agents (subag
 
 ## Translator dispatch
 
-- Write a standing brief, `docs/translator-brief.md` (template: `assets/translator-brief.md`). Make the dispatch itself one line: "Read docs/translator-brief.md and follow it for batch b017."
+- Write a standing brief, `docs/translator-brief.md` (template: `assets/translator-brief.md`). Make the dispatch itself one line: "Read docs/translator-brief.md and follow it for batches b017 b018 b019."
 - The brief contains:
   - the read list (style reference, term list);
   - the input/output formats;
@@ -58,7 +58,8 @@ How to turn extracted Japanese into reviewed English with parallel agents (subag
 - **Isolation:**
   - Don't edit `tools/` while agents run, or give each agent its own git worktree.
   - Each agent writes only its own output file.
-- Use a dedicated translator agent definition where your harness supports one (Claude Code: `.claude/agents/translator.md` with tools Read, Write, Bash and a set model; other agents: their custom-agent or prompt-file mechanism) rather than general agents that inherit every tool.
+- Use a dedicated translator agent definition where your harness supports one (Claude Code: the template's `.claude/agents/translator.md`, tools Read, Write, Edit, Bash and a set model; other agents: their custom-agent or prompt-file mechanism) rather than general agents that inherit every tool. Across 35 sessions, 251 of 253 agents went out as general-purpose and started at ~43k tokens of context each; a translator type with four tools started at ~9k.
+- **Fewer, longer agents.** Every new agent pays its start-up context as a fresh cache write. In one run, 150 agents averaging 15 turns spent more on those writes than the main thread spent on its reads. Give one agent 3–5 batches in sequence ("…for batches b017 b018 b019"), aiming at 40+ turns per agent; keep each batch one Read in size. Send a batch's fixes (check failures, Critical/Important review findings) to the agent that translated it with SendMessage where the harness has it, rather than a new agent that must re-read the brief and batch.
 
 ## Validation and merge
 
@@ -95,7 +96,7 @@ The merge refuses bad batches. The build/lint stays the hard gate.
 Cloning English into another language (Vietnamese on top of English, same engine) went smoothly except for what was copied selectively:
 - **Copy the style, not just the terms.** `glossary.md`'s Style rules (register per scene, e.g. rough first person in two endings) did not reach the new glossary; only the reviewer caught it. Copy the whole file, then translate its terms.
 - **Pair the new language with the old one.** The reviewer's pairs file lists JP, the existing translation and the new lines (`tools/pairs.py OUT lang`), so it can judge against the source and flag calques.
-- **Author paragraphs, generate lines.** Keep the translation as `{id: [paragraph, ...]}` and let a wrap tool make the fixed-width lines (`tools/wrap.py` in the Gundam repo): terms and names from the glossary never split, and a paragraph never ends on a stub shorter than ~6 chars ("vũ / trụ."). Edit the paragraphs, not the wrapped output.
+- **Author paragraphs, generate lines.** Keep the translation as `{id: [paragraph, ...]}` and let a wrap tool make the fixed-width lines (`tools/wrap.py`): terms and names from the glossary never split, and a paragraph never ends on a stub shorter than ~6 chars ("vũ / trụ."). Edit the paragraphs, not the wrapped output.
 - Lint reads the glossary of the language it checks (`glossary_<lang>.md`); a JP term that is a substring of another ("ガンダムチーム" inside "Ｇガンダムチーム") needs every form the longer text uses in its row.
 - The engine needs the language as a parameter (`pipeline.md` §Repo layout), or each new language touches a dozen files.
 

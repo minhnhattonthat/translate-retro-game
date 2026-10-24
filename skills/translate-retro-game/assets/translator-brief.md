@@ -1,7 +1,7 @@
 # Translator brief - <Game title> (<platform>, <year>)
 
 You translate part of the Japanese script of <Game> into English for a fan patch. <One line on genre, tone, protagonist.>
-Work only on the batch named in your dispatch. Do all translation yourself; do not dispatch subagents.
+Work only on the batches named in your dispatch, one at a time in the order given, each to a passing check before the next. Do all translation yourself; do not dispatch subagents.
 
 ## Read first
 1. `docs/style-reference.md` - character voices and approved example pairs. Match this voice.

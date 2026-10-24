@@ -10,6 +10,17 @@
           }
         ]
       }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "compact|clear",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python -c \"print('Context was reset. Before continuing, re-read AGENTS.md (or CLAUDE.md) and docs/status.md; resume from the next item there.')\""
+          }
+        ]
+      }
     ]
   }
 }
