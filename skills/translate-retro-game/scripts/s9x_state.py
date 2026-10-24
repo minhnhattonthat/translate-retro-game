@@ -1,6 +1,6 @@
-"""Unpack a RetroArch/Snes9x savestate (RZIP or raw) into dumps that tools/lua/s9x_load.lua injects into Mesen.
+"""Unpack a RetroArch/Snes9x savestate (RZIP or raw) into dumps that lua/probes/s9x_load.lua injects into Mesen.
 
-python tools/s9x_state.py STATE OUT_PREFIX -> OUT_PREFIX.{RAM,VRA,SRA} (raw) + OUT_PREFIX.lua (CPU regs)
+python s9x_state.py STATE OUT_PREFIX -> OUT_PREFIX.{RAM,VRA,SRA} (raw) + OUT_PREFIX.lua (CPU regs)
 """
 import re
 import struct
