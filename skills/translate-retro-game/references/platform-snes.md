@@ -11,13 +11,14 @@
   - Recompressed blocks that no longer fit go to the expanded area, still never crossing a bank.
 - **Assemblers:**
   - asar (most patches), xkas-plus, or WLA-DX for disassembly-based builds.
-  - asar: pass `--fix-checksum=off` (the release step owns the checksum), force operand size (`lda.w`) where it matters, and parenthesise expressions explicitly; asar's precedence surprised past patches. Branch and jump to labels, not numeric long targets (`bra $03CE2A` assembled to wrong bytes); disassemble every hook with `dis65816.py` after the build. End each free-space block with `warnpc` (`pipeline.md` §Checks).
+  - asar: pass `--fix-checksum=off` (the release step owns the checksum), force operand size (`lda.w`) where it matters, and parenthesise expressions explicitly; asar's precedence surprised past patches. Branch and jump to labels, not numeric long targets (`bra $03CE2A` assembled to wrong bytes); disassemble every hook with `dis65816.py` after the build. An out-of-range branch fails the build: have the build script delete the old ROM first, so a failed build can't leave a stale one in `build/` to test. End each free-space block with `warnpc` (`pipeline.md` §Checks).
   - Text built in code: menus and battle commands can be written as `LDA #tile` / `STA buf,x` chains (`A9 tt 8D/9D lo hi`) with no string anywhere. Scan code for those chains whose immediates decode to kana through the table; one game's battle command labels lived only there.
   - With a disassembler that emits WLA source, emit the header as data, never `.SNESHEADER`/`.BASE`, so the identity build stays exact.
   - Point Makefile tool variables (`WLA ?=`) at the in-repo `tools/` copy, not at a path from someone else's machine.
 - **Fonts:**
   - VWF on the kanji dynamic-tile path is the usual route.
   - A tiny 3×7 font, 2 letters per tile, works for names and long descriptions in small boxes.
+  - **Pre-built screen-map text** (whole pages stored as tilemaps): the BG's 1,024-tile limit rules out a VWF drawn into shared tiles. Either use one tile column per letter with the space as a real glyph tile (never tile 0, which other screens clear with), or render each page offline in a proportional font and give the page its own tile sheet.
   - The VWF tile buffer gets wiped by window clears and map scroll (a black bar in-game), so test scrolling and menu reopening.
 - **Text engines** often jump (`F2`/`F3`-style goto/call codes) into shared fragments. The extractor must follow jumps, and the encoder must keep fragment addresses valid, or one review fix breaks every jump (seen as "intro stuck at black screen").
 - **Checksum:** complement at `+0x2C`, sum at `+0x2E` of the header (`$FFDC/$FFDE` HiROM, `$7FDC/$7FDE` LoROM). Do it only in the release step.

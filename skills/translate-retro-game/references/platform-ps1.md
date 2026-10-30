@@ -10,10 +10,14 @@
 - **EXE and overlays:** armips for hooks.
   - Patch strings in place where possible, never touch the tails of code overlays, and remap `lui`/`addiu` pairs when moving strings.
   - MIPS immediates sign-extend: `sltiu`/`addiu` with 0x8000-0xFFFF compare or add a negative number (`sltiu ...,0x8800` never matched; `addiu 0xb2f4` jumped to 0x8005b2f4 and hung boot). Use `ori` to build an unsigned low half, and `lui` + `addiu` with the high half rounded up when the low half is ≥ 0x8000.
+  - R3000 load delay: a load in a jump's delay slot isn't ready for the first instruction at the target. A hook that did this drew every glyph as a solid block.
+  - Short string literals (`char buf[] = "..."`) compile to `lw`/`lh`/`lb` copies from `lui` or `$gp` + offset, not a strcpy call, so a pointer search misses them. Get `$gp` from the `lui`/`addiu $gp` pair at startup and search for `$gp`-relative loads.
   - armips `equ` is textual substitution: `-PADIDX` with `PADIDX equ A+B` becomes `-A+B`. Parenthesise every `equ` value.
   - Unit-test asm hooks (e.g. under unicorn) with exact-PC asserts: a test that accepted any fetch fault passed a hook that hung the game.
   - Keep a committed `tools/re.py` (capstone disassembly, xref of `lui/addiu` pairs, savestate RAM read) instead of re-importing capstone inline in throwaway scripts.
 - **Text:** Shift-JIS, so use `jp_left.py --sjis`. Half-width ASCII may need a font/renderer patch.
+  - A raw Shift-JIS scan mostly hits TIM image pixels: skip TIM entries and require some kana in each match.
+  - Early Sony first-party games draw with the BIOS kanji font (`Krom2RawAdd`, B0:51). Hooking that call to draw two letters per cell is the cheap way to English.
 - **Windows:** check the box size (e.g. 30 chars × 3 lines). Give agents the soft limit; if the build splits overflow into a second window, pacing breaks.
 - **FMV subtitles (STR):** burn ASS subtitles with ffmpeg and re-insert with jPSXdec `-replaceframes`. For timing with faster-whisper, turn VAD **off**; with it on, lines went missing.
 - **Names stored in save files** need fixing on load, or old saves show old names.

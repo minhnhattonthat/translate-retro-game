@@ -116,6 +116,7 @@ Cloning English into another language (Vietnamese on top of English, same engine
   - pixel width from the font's width table for VWF (`data/windows.json` per window: px, lines, cells);
   - bytes for fixed-width fonts.
   - Leave the edge pixel free: a 216 px box with auto-wrap needed a 208 px limit.
+  - If a full box waits for a key press before it scrolls, the line count is a hard limit wherever text plays without input (attract demos, auto-advancing scenes), not only a pacing matter.
 - Translators get a **soft** target (~85–95 chars per box). The lint is the hard gate.
 - Give agents a dry-run fitter (`tools/fit.py "text" --box dialog` prints width per line), so they see the overflow before writing.
 - When it still doesn't fit, use this order unless the user set a different one:

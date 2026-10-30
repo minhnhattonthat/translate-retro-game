@@ -1,6 +1,6 @@
 #!/bin/sh
 # Translation-repo pre-commit hook (translate-retro-game skill).
-# Install: cp <skill>/scripts/hooks/pre-commit .git/hooks/pre-commit, then set CHECK to this repo's one-command
+# Install: cp <skill>/scripts/hooks/pre-commit tools/hooks/, commit it, git config core.hooksPath tools/hooks; then set CHECK to this repo's one-command
 # check (tests + text lint). Keep it under ~60 s: put slow emulator/build tests behind a marker and leave them out.
 CHECK='python -X utf8 -m pytest -q'
 

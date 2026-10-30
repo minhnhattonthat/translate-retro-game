@@ -5,7 +5,7 @@
 local mem = emu.memType.snesMemory
 local lo, hi = SRC_LO or 0, SRC_HI or 0xFFFFFF
 local function rd(a) return emu.read(a, mem) end
-L.on_write(0x420B, 0x420B, function(addr, value)
+local function dma(addr, value)
   for ch = 0, 7 do
     if value & (1 << ch) ~= 0 then
       local b = 0x4300 + ch * 16
@@ -17,4 +17,7 @@ L.on_write(0x420B, 0x420B, function(addr, value)
       end
     end
   end
-end)
+end
+for bank = 0, 0x3F do  -- I/O is mirrored in every system bank; code that writes it with DB=$81 misses $00/$80
+  L.on_write(bank << 16 | 0x420B, bank << 16 | 0x420B, dma)
+end
