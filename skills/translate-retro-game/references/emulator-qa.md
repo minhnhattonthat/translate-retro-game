@@ -121,7 +121,7 @@ The implementer has the most context pressure, so it skims: one project looked a
 2. Run the same tour on the original ROM into `work/qa/tour_jp` once, so reviewers can tell the game's own behaviour from a translation bug.
 3. `qa_gate.py todo work/qa/manifest.tsv work/qa/verdicts --size 30 --out-dir work/qa/chunks` writes `chunk_NNN.txt` files. Dispatch one read-only subagent per chunk, up to 4 at a time, with `$SKILL/assets/visual-qa-brief.md` (copy it to `docs/` and add the game's standing non-bugs as they are found) plus its chunk file and verdict file name.
 4. Fix each `issue`, re-run its route, look at the new sheet, and add `id<TAB>fixed<TAB>note` in a newer file (`verdicts/recheck_<n>.tsv`): later files override earlier ones.
-5. `qa_gate.py check work/qa/manifest.tsv work/qa/verdicts` exits 0 only when every sheet has a current `ok` or `fixed`. Call it from the repo's release script; the Claude Code guard also blocks `gh release create` while it fails.
+5. `qa_gate.py check work/qa/manifest.tsv work/qa/verdicts` exits 0 only when every sheet has a current `ok` or `fixed`. Call it from the repo's release script; the Claude Code guard also blocks `gh release create` while it fails (it checks every `work/qa/**/manifest.tsv` against the `verdicts/` beside it, so keep that layout).
 
 ## Agent playtest (a subagent plays turn by turn)
 

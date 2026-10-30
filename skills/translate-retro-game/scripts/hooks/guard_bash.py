@@ -58,20 +58,26 @@ def release_gate(cmd, cwd):
     found two wrap bugs (a second release to fix them)."""
     if not re.search(r"\bgh\s+release\s+(create|upload)\b", cmd):
         return None
-    import contextlib, io, os
-    man, vdir = os.path.join(cwd, "work", "qa", "manifest.tsv"), os.path.join(cwd, "work", "qa", "verdicts")
-    if not os.path.exists(man):
-        return ("No visual-QA manifest (work/qa/manifest.tsv): run the QA tour and qa_gate.py before a release "
+    import contextlib, glob, io, os
+    # repos keep the manifest in work/qa/ or a per-round subdir (work/qa/p8/); verdicts/ sits beside it
+    mans = glob.glob(os.path.join(cwd, "work", "qa", "**", "manifest.tsv"), recursive=True)
+    if not mans:
+        return ("No visual-QA manifest (work/qa/**/manifest.tsv): run the QA tour and qa_gate.py before a release "
                 "(SKILL.md phases 8-9). If the user wants to publish anyway, they can run the command themselves.")
     sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
     try:
         import qa_gate
     except ImportError:  # a copy of this hook outside $SKILL/scripts/hooks: no gate, never a crash
         return None
-    with contextlib.redirect_stdout(io.StringIO()) as out:
-        rc = qa_gate.check(man, vdir)
+    rc, man = 0, None
+    for man in mans:  # every manifest must pass: a stale older round blocks too
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            rc = qa_gate.check(man, os.path.join(os.path.dirname(man), "verdicts"))
+        if rc:
+            break
     if rc:
-        return ("qa_gate.py check fails, so this release is blocked:\n" + "\n".join(out.getvalue().splitlines()[-6:])
+        return (f"qa_gate.py check fails on {os.path.relpath(man, cwd)}, so this release is blocked:\n"
+                + "\n".join(out.getvalue().splitlines()[-6:])
                 + "\nFinish visual QA first; if the user wants to publish anyway, they can run the command themselves.")
     return None
 
@@ -108,10 +114,13 @@ if __name__ == "__main__":
             assert check(c), c
         for c in ok:
             assert not check(c), (c, check(c))
-        import tempfile
+        import os, tempfile
         with tempfile.TemporaryDirectory() as d:
             assert "No visual-QA manifest" in release_gate("gh release create v1.0 x.zip", d)
             assert release_gate("gh release view v1.0", d) is None
+            os.makedirs(os.path.join(d, "work", "qa", "p8"))
+            open(os.path.join(d, "work", "qa", "p8", "manifest.tsv"), "w").close()
+            assert "No visual-QA manifest" not in (release_gate("gh release create v1.0 x.zip", d) or "")
         print("selftest ok")
         sys.exit(0)
     try:
