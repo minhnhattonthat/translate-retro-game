@@ -16,13 +16,18 @@ controller saves it.
   within a scene; voice matches the style reference.
 - Things players and users caught that reviewers missed: jokes/wordplay losing their punch; ordinal suffix after a
   variable ("1th"); abbreviated names or terms (unless the glossary rulings allow them); stock phrases that read awkwardly in English ("... GET!").
+- Voice: each speaker against their row in the style reference. Speech quirks (〜っス, 〜ぞい, 〜ニャ, ござる, drawn-out
+  〜ぉ/〜ぅ endings, katakana robot speech), register (a king's formality, a thug's swagger, a child's cuteness) and
+  emotional intensity (rage, fear, comic timing) must come through in English, not be normalised into neutral prose.
+  Register markers flatten most often, more than quirks: old-man じゃ/のう/わし, rough ぜ/ねぇ/っス, feminine
+  かしら/わよ/のね. Audits of two patches found about 9 in 10 old-man lines and nearly every かしら line turned neutral.
 - Naturalness: would a fan-translation reader stumble? Against the glossary's Style rules: register and voice per
   scene, calques of an earlier translation (a second-language pass copies English phrasing).
 
 ## Report
 ### Issues
 #### Critical (meaning reversed, broken placeholder grammar, wrong speaker)
-#### Important (clear mistranslation, glossary inconsistency, abbreviation)
+#### Important (clear mistranslation, glossary inconsistency, abbreviation, a character's voice flattened: quirk, register or emotional beat lost, joke dead)
 #### Minor (style - these are deferred to one polish pass)
 Each: `id - JP gist - problem - suggested EN`.
 ### Assessment

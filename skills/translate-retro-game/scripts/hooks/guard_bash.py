@@ -78,7 +78,7 @@ def release_gate(cmd, cwd):
     if rc:
         return (f"qa_gate.py check fails on {os.path.relpath(man, cwd)}, so this release is blocked:\n"
                 + "\n".join(out.getvalue().splitlines()[-6:])
-                + "\nFinish visual QA first; if the user wants to publish anyway, they can run the command themselves.")
+                + "\nFinish that QA round first (visual tour or story pass); if the user wants to publish anyway, they can run the command themselves.")
     return None
 
 

@@ -153,7 +153,7 @@ Wire all of these into the one-command check (Step 0) so the pre-commit hook run
   - runtime side: the draw-hook scan (`emulator-qa.md`).
   - A text-side check alone once passed with 3 Japanese lines still reachable behind a pointer table.
   - Run `jp_left.py` on the marker build too (phase 5), not only at release: what it finds there is text the extractor missed, found before translation instead of after.
-- **Release gate:** lint → roundtrip → build → tests → smoke → `jp_left.py` → the screen tour (`emulator-qa.md` §Screen tour) → `qa_gate.py check`, stop at the first failure. The release script runs the tour itself (with an opt-out flag for iteration), so a release cannot skip it.
+- **Release gate:** lint → roundtrip → build → tests → smoke → `jp_left.py` → the screen tour (`emulator-qa.md` §Screen tour) → `qa_gate.py check` (visual tour and story pass) → `docs/polish.md` all ticked, stop at the first failure. The release script runs the tour itself (with an opt-out flag for iteration), so a release cannot skip it.
 
 ## Pitfalls that reached a user's playtest
 
@@ -204,7 +204,7 @@ When an older fan patch exists and the user wants to build on it:
   - known issues, credits (respect prior patch authors), AI-assistance disclosure;
   - "unofficial, no pre-patched ROMs".
 - Zip = patch(es) + README/PATCHING.txt only, with no .cue. Name it `Game_EN_vX.Y.bps`. Use ZIP_STORED for xdelta.
-- **`tools/release.py`** runs, stopping at the first failure: build → tests → smoke → `jp_left.py` → `qa_gate.py check` → debug tool off in this build → patch → re-apply to a clean original and compare → zip. It handles `--help` without building, and refuses to overwrite an existing version's files without `--force` (a `--help` call once overwrote a released patch). Keep the playable patched image in `build/` (the user tests from it); the zip holds only the patch.
+- **`tools/release.py`** runs, stopping at the first failure: build → tests → smoke → `jp_left.py` → `qa_gate.py check` on every `work/qa/**/manifest.tsv` (visual tour and story pass) → no unticked line in `docs/polish.md` → debug tool off in this build → patch → re-apply to a clean original and compare → zip. It handles `--help` without building, and refuses to overwrite an existing version's files without `--force` (a `--help` call once overwrote a released patch). Keep the playable patched image in `build/` (the user tests from it); the zip holds only the patch.
 - Release dirs stay local and gitignored. Publishing is the user's call.
 
 ## Publish (only when the user asks)

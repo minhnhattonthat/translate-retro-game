@@ -23,6 +23,10 @@ Run `python -X utf8 tools/batches.py check <batch>` from the repo root and fix e
 ## Style
 - Faithful: keep the information and order of ideas; adapt idiom, not meaning. Don't add details the Japanese doesn't
   state; don't summarise or skip. Adapt wordplay so the joke still lands (no translator notes).
+- Keep the speaker audible. JP register markers carry voice and must turn into English devices, not vanish:
+  old men's じゃ/のう/わし ("eh?", "my boy", "back in my day"), rough men's ぜ/ねぇ/っス ("ain't", "ya", "dammit",
+  clipped grammar), feminine かしら/わよ/のね ("I wonder...", "you know", "dear"), whines and drawls (〜ぅ/なぁ:
+  "but Mooom", stretched words). A line any speaker could have said is a mistake.
 - Use names and terms exactly as in the glossary. <Abbreviation ruling; default: never abbreviate to fit.> If a line can't fit the limit without
   losing meaning, keep the meaning and report it as `LONG: id`.
 - Honorifics / name order: <project ruling>. Punctuation: 「」 -> "...", ・・・ -> `...`, ！？ -> `!?`, <more>.
