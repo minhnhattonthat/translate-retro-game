@@ -196,6 +196,7 @@ When an older fan patch exists and the user wants to build on it:
 - Fix the SNES checksum in the release step (`bps.py snes-checksum`), not in the build, so the identity build stays byte-identical.
 - **Apply the finished patch to a clean original and compare** before shipping.
 - **README:**
+  - a "Translation status" table (template has it): each part of the game (dialogue, menus, graphics, name entry, songs/credits) and whether it is translated or left in Japanese, from `jp_left.py` and `docs/status.md`, not memory;
   - base ROM name, size, CRC32/MD5/SHA-1 (No-Intro name for carts, Redump link for discs);
   - patched CRC32;
   - which emulator it was tested in;
