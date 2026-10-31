@@ -211,7 +211,7 @@ When an older fan patch exists and the user wants to build on it:
 
 Each repo re-derived these steps; they are the same every time.
 1. Owner: the account the user names. If they named none, use the owner of the sibling game repos (the template's), and confirm before creating anything: one repo was created under the wrong account. Push with that account's token (`GH_TOKEN=$(gh auth token --user <owner>)`, or `git -c credential.helper='!gh auth git-credential' push`) when the SSH key belongs to another account.
-2. Repo `<game-slug>-en`, public, with topics (`fan-translation`, `rom-hack`, the platform) and description `English fan translation of <Game title> (<platform>)`: the real game title, never the repo slug (the localization site and its cover bot read the title from it). README, LICENSE and `.github/FUNDING.yml` come from the template.
+2. Repo `<game-slug>-en`, public, with topics `fan-translation` and the platform (lowercase, e.g. `gba`; no others, matching the sibling repos) and description `English fan translation of <Game title> (<platform>)`: the real game title, never the repo slug (the localization site and its cover bot read the title from it). README, LICENSE and `.github/FUNDING.yml` come from the template.
 3. History holds no ROM, save, savestate or disc image: `git log --all --stat` and check the extensions.
 4. `git fetch` and rebase before pushing.
 5. `gh release create vX.Y <zip> --title ... --notes-file notes.md`, notes with the base ROM hashes and the patch SHA-1. The guard blocks it until `qa_gate.py check` passes. If the user runs it themselves, give the command as one line.
