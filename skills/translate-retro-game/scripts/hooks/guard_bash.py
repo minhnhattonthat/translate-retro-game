@@ -8,6 +8,7 @@
 3. Test output piped through tail/head in front of `&& git commit` - the pipe's exit code is tail's, so failing
    tests committed.
 4. `gh release create|upload` while `qa_gate.py check` fails on work/qa/ (see release_gate).
+5. A release, or making a repo public, while README.md still has the template's placeholders (see readme_gate).
 
 Reading and analysis scripts (heredoc or -c) stay allowed; writing a source file goes through the file-edit tool.
 Exit 2 + stderr = the call is blocked and the message is shown to the agent. Copy this file to the repo's
@@ -50,6 +51,28 @@ def check(cmd):
     for rule, msg in RULES:
         if (rule(cmd) if callable(rule) else rule.search(cmd)):
             return msg
+    return None
+
+
+# fan-translation-template's README placeholders that real README text never uses; <file> and <game> can be real syntax
+PLACEHOLDER = re.compile(r"<(Game title|repo|publisher|platform|year|sha1|size|Translated[^<>\n]*|none known[^<>\n]*"
+                         r"|Left in Japanese|Dialogue[^<>\n]*|Menus,[^<>\n]*|Name entry|Songs,[^<>\n]*"
+                         r"|Title screen[^<>\n]*)>")
+
+
+def readme_gate(cmd, cwd):
+    """5. Two repos went public on the raw template README: the zip's README is a separate, filled-in file, so every
+    other check passed."""
+    if not re.search(r"\bgh\s+(release\s+(create|upload)\b|repo\s+edit\b[^;&|\n]*--visibility[= ]public)", cmd):
+        return None
+    import os
+    path = os.path.join(cwd, "README.md")
+    if not os.path.exists(path):
+        return None
+    with open(path, encoding="utf-8", errors="replace") as f:
+        left = sorted({m.group(0) for m in PLACEHOLDER.finditer(f.read())})
+    if left:
+        return f"README.md still has template placeholders, so this is blocked: {' '.join(left[:8])}. Fill it in from docs/ first."
     return None
 
 
@@ -121,6 +144,16 @@ if __name__ == "__main__":
             os.makedirs(os.path.join(d, "work", "qa", "p8"))
             open(os.path.join(d, "work", "qa", "p8", "manifest.tsv"), "w").close()
             assert "No visual-QA manifest" not in (release_gate("gh release create v1.0 x.zip", d) or "")
+            assert readme_gate("gh release create v1.0 x.zip", d) is None  # no README here
+            with open(os.path.join(d, "README.md"), "w") as f:
+                f.write("# <Game title>\nclone github.com/x/<repo>\nRun tool <file>\n")
+            assert "<Game title> <repo>" in readme_gate("gh release create v1.0 x.zip", d)
+            assert readme_gate("gh repo edit x --visibility public --accept-visibility-change-consequences", d)
+            assert readme_gate("gh release view v1.0", d) is None
+            assert readme_gate("gh repo edit x --add-topic gba", d) is None
+            with open(os.path.join(d, "README.md"), "w") as f:
+                f.write("# Real Game\nRun tool <file>\n")
+            assert readme_gate("gh release create v1.0 x.zip", d) is None
         print("selftest ok")
         sys.exit(0)
     try:
@@ -128,7 +161,8 @@ if __name__ == "__main__":
         cmd = data.get("tool_input", {}).get("command", "")
     except ValueError:
         sys.exit(0)
-    msg = check(cmd) or release_gate(cmd, data.get("cwd") or ".")
+    cwd = data.get("cwd") or "."
+    msg = check(cmd) or readme_gate(cmd, cwd) or release_gate(cmd, cwd)
     if msg:
         print(msg, file=sys.stderr)
         sys.exit(2)

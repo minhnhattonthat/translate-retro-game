@@ -19,7 +19,7 @@ Neither you nor the user should play through the game to reach a scene. Before t
 python -X utf8 $SKILL/scripts/emu.py rom/game.sfc --out work/qa/warp --script tools/debug/warp.lua --var "SCENE='ch3_castle'" --frames 900 --sheet
 ```
 
-- **`tools/debug/scenes.*`:** the scene list: name → the RAM writes that put the game there (map/room id, position, chapter and story flags, party, inventory, money, event id), plus how to trigger the load (a door, menu exit, death, a soft reset). Cover every chapter, every menu, every shop and battle type, every ending and the credits. Grow it whenever a bug report names a place it can't reach. Chapter entries must enter the way the game does (story select, or setting the flags then finishing the previous chapter's last event), so the chapter card and intro play. A warp that swaps in the chapter's first script skips the card, and QA then never sees it.
+- **`tools/debug/scenes.*`:** the scene list: name → the RAM writes that put the game there (map/room id, position, chapter and story flags, party, inventory, money, event id), plus how to trigger the load (a door, menu exit, death, a soft reset). Cover every chapter, every menu and submenu (config and controller screens too), every shop and battle type, every special attack or skill family, every minigame and casino, every ending and the credits: players found bugs in exactly these while tours stayed green. Grow it whenever a bug report names a place it can't reach. Chapter entries must enter the way the game does (story select, or setting the flags then finishing the previous chapter's last event), so the chapter card and intro play. A warp that swaps in the chapter's first script skips the card, and QA then never sees it.
 - **`tools/debug/warp.lua`:** reads `SCENE`, waits for a safe screen (title or field, tested by a RAM flag, not a frame count), applies the writes from `L.on_frame` and triggers the load. Same file, opt-in globals: `GOD` (pin HP or a timer every frame so `--mash` routes survive fights), `NOENC` (no random encounters), `FAST` (instant text, max stats, all items).
 - **Find the values** with recon tools: `ramsearch.py` over `ramdump.lua` dumps for ids and flags (change rooms, note what changes), `watch.lua` to see who reads them, the disassembly for the event-flag array. Check GameFAQs/cheat databases first (never tcrf.net: see SKILL.md ground rules): many Japanese games keep a debug menu, level select or sound test, and existing cheat codes often are the RAM addresses you need. A debug menu re-enabled by a ROM patch goes in a debug build only, never the release.
 - **No Lua (PPSSPP):** the same scene list drives a Python script that imports `psp.py` and pokes RAM over its WebSocket (`memory.write`), or writes CWCheat codes to `memstick/PSP/Cheats/<GAME_ID>.ini` with cheats enabled.
@@ -34,10 +34,24 @@ User saves, memory cards and savestates still help (ask once at project start), 
 The model is a `tools/tour.py` plus a `tools/lua/debug_screen.lua` that force every screen of every case, then **read the text back from video memory** instead of trusting screenshots.
 - **Force, don't play.** An `on_exec` hook at the point where the game picks its string writes the selector (team and mission, ending flags) first. Each case is its own cold-boot run, so cases run in parallel (`--jobs 3`) and none depends on another.
 - **Dump when the text is complete.** Typed, scrolled or faded text is never fully on screen at one frame. Dump VRAM and PPU registers (`L.dump_ppu`) when the writer finishes or a fixed number of frames after it, and read the tilemap: tile index = entry & 0x3FF, chr and tilemap base and map height from the `.ppu.txt` of that scene (they differ per scene: one scene used chr word `0x4000` and a double-height map).
-- **Check each line:** the count of non-blank tile columns in the line's tile rows must equal the string's non-space characters. That catches lost characters, a wrap into the next row and stray tiles below, in every language, with no OCR. Also assert that every text id was shown at least once (the coverage line of the report).
+- **Check each line:** the count of non-blank tile columns in the line's tile rows must equal the string's non-space characters. That catches lost characters, a wrap into the next row and stray tiles below, in every language, with no OCR. Every text id must also be shown at least once (§Text coverage).
 - **Which string was shown:** log the writer's pointer register at its entry (Mesen2 state keys `cpu.dbr`, `cpu.x`, `cpu.y`; a pointer kept in a task slot lives at slot-base + offset, so prefer the register) and map it to an id from the build's own layout.
 - **Sheets for the eye:** render the full text from the dump (not the screenshot) into a contact sheet per group; keep the screenshots in each case folder.
 - Exit non-zero on any failed case so the release gate can use it.
+
+## Text coverage (phase 8, a release gate)
+
+A tour only proves the screens it visits. Coverage lists the text it never reached, which turns "what did we miss?" into new scene-list entries. In one week of player reports, every special attack in one game froze, and config screens and minigames in others were broken, all with a green tour.
+
+1. **List the strings:** the build writes `build/strings.tsv`, one `id<TAB>hex address` per string, from its own layout: the address the game reads the string's first byte from.
+2. **Log what's read** on every warp or tour run, each run with its own `--out` under one directory:
+   - Mesen: `--script $SKILL/scripts/lua/probes/textcover.lua --var "RANGES='83AA38-83BE32,03AA38-03BE32'"`, listing every bank mirror the code may read through. Text must hold on screen long enough to read: raise the warp's hold time.
+   - Other emulators: log `TEXT <hex address>` to `log.txt` from the project's own text hook.
+   - Compressed text or a RAM buffer: log ids from the decompressor or the writer as `TEXT <hex id>`, and put those ids in `strings.tsv`.
+3. **Report:** `python -X utf8 $SKILL/scripts/textcover.py work/qa/cover build/strings.tsv --waive docs/text_unshown.tsv --mask 0x7FFFFF` (the mask folds SNES mirrors). Exit 1 while any string isn't shown or waived.
+4. **Close the gaps:** add a scene for each group of missing ids, and re-run. Waive only what you can show is unreachable, with the reason (`id<TAB>debug-only string`).
+
+A first-byte read proves the game reached a string, not that it drew correctly; the sheets still judge that. PPSSPP has no Lua, so a PSP project needs another log source or a waiver for the gate.
 
 ## emu.py
 
@@ -121,12 +135,13 @@ Pair it with `--mash` and a long `--frames` to sweep menus and dialogue cheaply.
 
 The implementer has the most context pressure, so it skims: one project looked at 15 of 417 tour sheets and called QA done. Read-only reviewer subagents read the sheets instead, and `qa_gate.py` makes "done" countable.
 
-1. After every tour: `qa_gate.py init work/qa/manifest.tsv work/qa/tour`. It adds new sheets and re-hashes the old ones; a sheet whose pixels changed loses its verdict, so a rebuild never passes on the last build's verdicts, and unchanged sheets keep theirs. Pass `--glob "*.png"` when the tour's sheets aren't named `*sheet*`.
+1. After every tour: `qa_gate.py init work/qa/manifest.tsv work/qa/tour --build build/game.sfc`, naming the ROM or image the tour ran on. It adds new sheets and re-hashes the old ones; a sheet whose pixels changed loses its verdict, and unchanged sheets keep theirs. `--build` records that ROM's hash, so a later rebuild fails the gate until a new tour: without it, unchanged sheets pass on a build nobody looked at. Pass `--glob "*.png"` when the tour's sheets aren't named `*sheet*`.
 2. Run the same tour on the original ROM into `work/qa/tour_jp` once, so reviewers can tell the game's own behaviour from a translation bug.
 3. `qa_gate.py todo work/qa/manifest.tsv work/qa/verdicts --size 30 --out-dir work/qa/chunks` writes `chunk_NNN.txt` files. Dispatch one read-only subagent per chunk, up to 4 at a time, with `$SKILL/assets/visual-qa-brief.md` (copy it to `docs/` and add the game's standing non-bugs as they are found) plus its chunk file and verdict file name.
 4. Fix each `issue`, re-run its route, look at the new sheet, and add `id<TAB>fixed<TAB>note` in a newer file (`verdicts/recheck_<n>.tsv`): later files override earlier ones.
    - A new manifest's rows have no change time, so every verdict already in `verdicts/` counts for them. Starting over (a new release round, a deleted manifest), move the old verdicts out first (`work/qa/verdicts_v1.0`).
-5. `qa_gate.py check work/qa/manifest.tsv work/qa/verdicts` exits 0 only when every sheet has a current `ok` or `fixed`. Call it from the repo's release script; the Claude Code guard also blocks `gh release create` while it fails (it checks every `work/qa/**/manifest.tsv` against the `verdicts/` beside it, so keep that layout).
+5. **Measure every choice box and centred menu box.** A contact sheet is too small to show a few pixels, and 8 projects shipped or nearly shipped off-centre or clipped Yes/No, menu or bubble text. For each one, warp there and run `python $SKILL/scripts/inkbox.py SHOT.png x,y,w,h [x,y,w,h ...]` with each rect inside one box's border; it exits 1 when the margins differ by more than 2 px. Run it on the original ROM's shot when unsure the box is meant to be centred.
+6. `qa_gate.py check work/qa/manifest.tsv work/qa/verdicts` exits 0 only when every sheet has a current `ok` or `fixed` and the recorded build is unchanged. Call it from the repo's release script; the Claude Code guard also blocks `gh release create` while it fails (it checks every `work/qa/**/manifest.tsv` against the `verdicts/` beside it, so keep that layout). For a hotfix that doesn't justify a full tour, re-run the changed scenes, then record why: `qa_gate.py waive work/qa/manifest.tsv "<reason>"`. The waiver holds for that exact build only.
 
 ## Agent playtest (a subagent plays turn by turn)
 

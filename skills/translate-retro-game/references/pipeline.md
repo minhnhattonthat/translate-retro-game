@@ -142,6 +142,7 @@ Wire all of these into the one-command check (Step 0) so the pre-commit hook run
     ```
     For a fixed hook site, also assert the original bytes before writing (`assert ORIG[off:off+4] == bytes.fromhex("...")`), so a different revision fails at build time rather than in game.
   - **Every repointed pointer lands on a block header.** For each word in the original ROM that points at a moved block (script, string bank), assert the built ROM's word points at that block's magic (`PAC3`, a length header, whatever the format has). Search with flag bits masked: tables often keep flags in the top bits of the pointer (one GBA game's map tables: `0x88xxxxxx` NPC talk, `0x18xxxxxx` door scripts, read as `& 0x0FFFFFFF`), so a repointer that matches exact `0x08xxxxxx` words misses them. Keep the flag bits when writing the new address. There this missed 74 NPC/door events: talking to one NPC gave a permanent black screen, and the script tour never saw it because it starts scripts directly. Search every data range for them, not only the code literal pools; these tables sat just past the range the build scanned.
+  - **Every text pointer slot holds its string's address, in the original ROM.** Before writing a slot, decode its original bytes and assert they give the address the string was extracted from, for every pointer form the extractor knows. One pattern took the address one byte early at 12 sites: the build overwrote an `LDA` opcode and every special attack froze. A write log can't catch this, because its expected bytes come from the same wrong offset.
   - **Every table the build writes, writes all its entries:** assert per table that the count written equals the entries with English. One insert step skipped a whole table (its field was named differently) and only a playtest found it.
   - **A code hook doesn't swallow a branch target.** For each overwritten code span, disassemble ±4 KB around it and fail if any branch or call (B/Bcc/BL, JMP/JSR/BRA, `j`/`jal`/`b*`) lands strictly inside the span: the game still jumps there into your hook's middle. A menu hook over E5A4–E5B1 ate the newline branch's target at E5AA, and every multi-line menu string lost its later lines.
   - **Relocated strings leave no reader behind:** after moving strings, scan the original ROM's code for references to each vacated address (16/24-bit literals, split bank + offset immediates like 65816 `LDA #bank` / `LDY #ptr`, ARM literal pools, MIPS `lui`/`addiu` pairs) and fail on any the build didn't rewrite. A stale `LDA #$85` left one game's Load screen black.
@@ -191,11 +192,11 @@ When an older fan patch exists and the user wants to build on it:
 
 - **Patch only, no ROM data:**
   - BPS for SNES (`scripts/bps.py make`, which re-applies and verifies);
-  - xdelta3 for disc images, NDS and >16 MiB GBA;
+  - xdelta3 for disc images, NDS and >16 MiB GBA; for a disc image, `xdelta3 -B <image size>`, since by default it only looks for matches within 64 MB, and rebuilt archives that moved data made one patch 994 MB instead of 8 MB;
   - IPS only for ≤16 MiB legacy.
 - Fix the SNES checksum in the release step (`bps.py snes-checksum`), not in the build, so the identity build stays byte-identical.
 - **Apply the finished patch to a clean original and compare** before shipping.
-- **README:**
+- **README** (the repo's `README.md`, filled in from the template, and the zip's; a filled zip README once hid a raw template on the repo page):
   - a "Translation status" table (template has it): each part of the game (dialogue, menus, graphics, name entry, songs/credits) and whether it is translated or left in Japanese, from `jp_left.py` and `docs/status.md`, not memory;
   - base ROM name, size, CRC32/MD5/SHA-1 (No-Intro name for carts, Redump link for discs);
   - patched CRC32;
@@ -204,14 +205,14 @@ When an older fan patch exists and the user wants to build on it:
   - known issues, credits (respect prior patch authors), AI-assistance disclosure;
   - "unofficial, no pre-patched ROMs".
 - Zip = patch(es) + README/PATCHING.txt only, with no .cue. Name it `Game_EN_vX.Y.bps`. Use ZIP_STORED for xdelta.
-- **`tools/release.py`** runs, stopping at the first failure: build → tests → smoke → `jp_left.py` → `qa_gate.py check` on every `work/qa/**/manifest.tsv` (visual tour and story pass) → no unticked line in `docs/polish.md` → debug tool off in this build → patch → re-apply to a clean original and compare → zip. It handles `--help` without building, and refuses to overwrite an existing version's files without `--force` (a `--help` call once overwrote a released patch). Keep the playable patched image in `build/` (the user tests from it); the zip holds only the patch.
+- **`tools/release.py`** runs, stopping at the first failure: build → tests → smoke → `jp_left.py` → `qa_gate.py check` on every `work/qa/**/manifest.tsv` (visual tour and story pass) → `textcover.py` (`emulator-qa.md` §Text coverage) → no unticked line in `docs/polish.md` → no template placeholder in the repo `README.md` → debug tool off in this build → patch → re-apply to a clean original and compare → zip. It handles `--help` without building, and refuses to overwrite an existing version's files without `--force` (a `--help` call once overwrote a released patch). Keep the playable patched image in `build/` (the user tests from it); the zip holds only the patch.
 - Release dirs stay local and gitignored. Publishing is the user's call.
 
 ## Publish (only when the user asks)
 
 Each repo re-derived these steps; they are the same every time.
 1. Owner: the account the user names. If they named none, use the owner of the sibling game repos (the template's), and confirm before creating anything: one repo was created under the wrong account. Push with that account's token (`GH_TOKEN=$(gh auth token --user <owner>)`, or `git -c credential.helper='!gh auth git-credential' push`) when the SSH key belongs to another account.
-2. Repo `<game-slug>-en`, public, with topics `fan-translation` and the platform (lowercase, e.g. `gba`; no others, matching the sibling repos) and description `English fan translation of <Game title> (<platform>)`: the real game title, never the repo slug (the localization site and its cover bot read the title from it). README, LICENSE and `.github/FUNDING.yml` come from the template.
+2. Repo `<game-slug>-en`, public, with topics `fan-translation` and the platform (lowercase, e.g. `gba`; no others, matching the sibling repos) and description `English fan translation of <Game title> (<platform>)`: the real game title, never the repo slug (the localization site and its cover bot read the title from it). LICENSE and `.github/FUNDING.yml` come from the template. So does `README.md`, with placeholders to fill in from `docs/` before anything goes public; the guard blocks a release or a switch to public until they are gone.
 3. History holds no ROM, save, savestate or disc image: `git log --all --stat` and check the extensions.
 4. `git fetch` and rebase before pushing.
 5. `gh release create vX.Y <zip> --title ... --notes-file notes.md`, notes with the base ROM hashes and the patch SHA-1. The guard blocks it until `qa_gate.py check` passes. If the user runs it themselves, give the command as one line.

@@ -37,7 +37,7 @@ How to turn extracted Japanese into reviewed English with parallel agents (subag
 - **Output format:** `id<TAB>EN`, or a JSON object `{"id": "EN"}`, written with the agent's **file-write tool**, never a shell heredoc.
   - The output must be plain ASCII, with `\n` only where a break must fall.
   - Accept TSV output in the merge tool: agents often write TSV to avoid quote escaping.
-- **Generate batches with a tool** (`tools/batches.py split`), never by hand. Write per-batch term lists alongside (`build/terms_<batch>.txt`, the glossary rows whose JP appears in the batch) so agents don't each read a 40 KB glossary. Rules every project's `batches.py` relearned:
+- **Generate batches with a tool** (`tools/batches.py split`), never by hand. Copy `$SKILL/assets/batches.py` to `tools/` and fit its ADAPTER section to this game's text format and limits; it already follows this section's rules and §Validation. Write per-batch term lists alongside (`build/terms_<batch>.txt`, the glossary rows whose JP appears in the batch) so agents don't each read a 40 KB glossary. Rules every project's `batches.py` relearned:
   - skip entries with empty JP: they are not "untranslated" and get re-queued forever otherwise;
   - number batches from b001 on every run and refuse to overwrite existing batch files (a "show tail" call once created duplicate batches b032–b060);
   - match glossary terms only on whole kana/kanji runs, never as substrings (ミン inside タイミング, くも inside ぼくも);

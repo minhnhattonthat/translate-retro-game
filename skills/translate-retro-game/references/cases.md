@@ -22,6 +22,7 @@ Failures from other translation projects, found by what you see rather than by c
 | Several growing regions leave some pointers wrong or adjusted twice | Shifts computed on a partly patched buffer | Plan every shift in original coordinates, apply from the end backward |
 | One translated string freezes a later, unrelated screen, or a name comes out cut ("Piyori") | The string is copied into a fixed RAM field or save-data slot sized for the Japanese | Bisect: build with half the entries translated, warp to the screen, repeat; then a per-id byte cap in the lint |
 | A Yes/No prompt crashes, or "No" draws past the window | The wrap tool rewrote the line break before the choice (plain newline → indent code) | Keep every control code before a choice exactly as in the JP; lint the line structure in front of choices |
+| Every use of one feature freezes (all special attacks), though write checks pass | A pointer pattern took the wrong byte, so the build patched an instruction, and its write log expected that same byte | Assert each slot's original value decodes to its string's address (`pipeline.md` §Checks) |
 | A label stays Japanese, but no string or pointer for it exists | The code builds it from glyph codes in instruction immediates | Grep code for the codes as immediates (`pipeline.md` §Extract) |
 
 ## Compression and assets
