@@ -76,7 +76,7 @@ def read_route(path):
 
 
 def mesen_portable(exe):
-    """settings.json beside Mesen.exe = portable mode (no first-run wizard) and Lua io access for screenshots.
+    """settings.json beside Mesen.exe = portable mode (no first-run wizard), Lua io access for screenshots, rewind off.
     ConfigUpgrade 1 (FirstRun) makes the GUI fill in default key mappings on its next start; without it (0) the
     SNES/NES/GB pads stay unmapped and the user can't play the build in this Mesen."""
     path = os.path.join(os.path.dirname(exe), "settings.json")
@@ -84,8 +84,10 @@ def mesen_portable(exe):
     script = cfg.setdefault("Debug", {}).setdefault("ScriptWindow", {})
     # --testRunner never runs the GUI's FirstRun defaults: SNES port 1 stays unattached and emu.setInput is ignored
     port = cfg.setdefault("Snes", {}).setdefault("Port1", {})
-    if script.get("AllowIoOsAccess") is True and "ConfigUpgrade" in cfg and port.get("Type"):
+    prefs = cfg.setdefault("Preferences", {})
+    if script.get("AllowIoOsAccess") is True and "ConfigUpgrade" in cfg and port.get("Type")             and prefs.get("RewindBufferSize") == 0:
         return
+    prefs["RewindBufferSize"] = 0  # rewind buffer (default 300 min) eats RAM; parallel runs multiply it
     port.setdefault("Type", "SnesController")
     script["AllowIoOsAccess"] = True
     cfg.setdefault("ConfigUpgrade", 1)

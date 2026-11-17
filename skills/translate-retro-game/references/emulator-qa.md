@@ -172,7 +172,7 @@ python -X utf8 $SKILL/scripts/play.py SESSION --back 2                          
 **Mesen / MesenCE (SNES, GBA):**
 - **GBA:** needs `<Mesen dir>/Firmware/gba_bios.bin` (`fetch_emu.py gba-bios`). GBA hooks take plain bus addresses (ROM `0x08000000`, EWRAM `0x02000000`, IWRAM `0x03000000`); `L.rom_off` strips the ROM base. Battery saves are `Saves/<rom name>.sav`.
 - `Mesen.exe --testRunner --timeout=N rom script.lua`. `--timeout` is undocumented and defaults to 100 s, which is why the old "~100 s wall limit" chain scripts existed. On timeout it exits 127 or -1.
-- `settings.json` beside the exe means portable mode (no first-run wizard hang). It needs `"AllowIoOsAccess": true` or Lua `io` is nil; emu.py bootstraps this.
+- `settings.json` beside the exe means portable mode (no first-run wizard hang). It needs `"AllowIoOsAccess": true` or Lua `io` is nil; emu.py bootstraps this. emu.py also sets `"Preferences": {"RewindBufferSize": 0}` (rewind off): the rewind buffer eats RAM per instance, which adds up over parallel runs. Turn it off by hand in a Mesen you launch yourself (Settings > Preferences > Rewind).
 - Set input in the `inputPolled` event. Headless test mode has no player 2: `emu.setInput(x, 1)` lands on player 1. For 2-player screens, write the game's own player-2 joypad copy in RAM right after it reads the controller.
 - Without `--sav`, Mesen loads whatever `<exe dir>/Saves/<rom name>.srm` an earlier run left (one garbled the file select). Delete it after a run that saved in game.
 - Savestate create/load only works inside an exec memory callback; the driver queues them.
