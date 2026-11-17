@@ -89,6 +89,7 @@ def _unfilter(raw, h, stride, bpp):
 
 
 def write_png(path, w, h, rows):
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     def chunk(t, b):
         return struct.pack(">I", len(b)) + t + b + struct.pack(">I", zlib.crc32(t + b))
     with open(path, "wb") as f:
@@ -129,7 +130,7 @@ def sheet(imgs, cols, out, div=1):
     r = (len(imgs) + cols - 1) // cols
     W, H = cols * (w + 2), r * (h + 2)
     canvas = [bytearray(b"\x40\x00\x40" * W) for _ in range(H)]
-    for k, (iw, _, bpp, rows) in enumerate(imgs):
+    for k, (iw, _, bpp, rows) in enumerate(rgb(img) for img in imgs):
         ox, oy = (k % cols) * (w + 2), (k // cols) * (h + 2)
         for y in range(min(h, len(rows) // div)):
             src = rows[y * div]
@@ -164,11 +165,18 @@ def zoom(img, n):
     return w * n, h * n, bpp, out
 
 
+def rgb(img):
+    """Composite alpha on dark grey, keeping white-on-transparent lettering visible."""
+    w, h, bpp, rows = img
+    if bpp == 3:
+        return img
+    return w, h, 3, [bytes((r[i + c] * r[i + 3] + 32 * (255 - r[i + 3]) + 127) // 255
+                          for i in range(0, len(r), 4) for c in range(3)) for r in rows]
+
+
 def side(a, b):
     """a | b on one RGB canvas, for before/after pairs."""
-    def rgb(img):
-        return [r if img[2] == 3 else b"".join(r[i:i + 3] for i in range(0, len(r), 4)) for r in img[3]]
-    ra, rb, h = rgb(a), rgb(b), max(a[1], b[1])
+    ra, rb, h = rgb(a)[3], rgb(b)[3], max(a[1], b[1])
     gap = b"\x40\x00\x40" * 4
     return a[0] + 4 + b[0], h, 3, [(ra[y] if y < a[1] else bytes(a[0] * 3)) + gap
                                    + (rb[y] if y < b[1] else bytes(b[0] * 3)) for y in range(h)]
@@ -234,6 +242,7 @@ def _selftest():
     assert z[:2] == (4, 4) and z[3][1] == bytes([1] * 6 + [2] * 6)
     s = side(img, (1, 1, 4, [bytes([9, 9, 9, 255])]))
     assert s[:2] == (7, 2) and s[3][0].endswith(bytes([9] * 3)) and s[3][1].endswith(bytes(3))
+    assert rgb((2, 1, 4, [b"\xff\xff\xff\x00\xff\xff\xff\xff"]))[3] == [b"\x20\x20\x20\xff\xff\xff"]
     assert frame_no("x/f000300.png") == 300 and frame_no("final.png") is None
     import tempfile
 
@@ -252,7 +261,7 @@ def _selftest():
         assert read_png(p)[3] == [bytes([10, 20, 30, 40, 50, 60, 0, 0, 0])]
         for k in range(5):
             write_png(os.path.join(t, f"f{k:06d}.png"), 2, 2, [bytes(6)] * 2)
-        pages = make(t, cols=2, limit=2)
+        pages = make(t, cols=2, limit=2, out=os.path.join(t, "nested", "sheet.png"))
         assert [os.path.basename(x) for x in pages] == ["sheet.png", "sheet_2.png", "sheet_3.png"]
         big = make(t, cols=4, limit=16, scale=600, out=os.path.join(t, "z.png"))  # 1200 px tiles: 1 per page
         assert len(big) == 5 and read_png(big[0])[:2] == (1202, 1202)

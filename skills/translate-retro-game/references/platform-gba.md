@@ -7,7 +7,8 @@
   - Going to 32 MiB means xdelta, and you must check the save type still works.
 - **Text** is often Shift-JIS, so `jp_left.py --sjis` works directly. Tables of kana in code order (font maps) and kinsoku (line-break rule) tables decode as "text"; exclude them.
 - **Older fan patches** sometimes left pointers aimed mid-line into old Japanese or at blank slots. `jp_left.py --gba-ptrs` (without `--orig`) finds them; fix them in a repair table written by the insert step.
-- **Assembling:** armips, or keystone from Python. keystone mis-encodes conditional `bl`; check the bytes.
-- **Fonts:** a VWF hook plus a width table in the wrap code (e.g. box 2×224 px, choices ≤45 chars).
+- **Assembling:** armips, or keystone from Python. keystone mis-encodes conditional `bl`; check the bytes. Thumb BL reaches only about ±4 MiB: use an `ldr`/`bx` veneer beyond that. Prefix assembly includes literal pools, so it cannot reliably measure label offsets.
+- **Fonts:** a VWF hook plus a width table in the wrap code (e.g. box 2×224 px, choices ≤45 chars). A tile-allocating blitter must reuse or free columns it redraws; otherwise VWF exhausts VRAM despite fitting the box.
+- **Video registers:** BG scroll registers are write-only; raw I/O dumps cannot recover them. Check DISPCNT before trusting a layer's stale BG registers, and patch the game's shadow copy if VBlank overwrites Lua I/O writes.
 - **Emulator:** `emu.py game.gba` drives Mesen (windowless, exec hooks, Lua savestates). It needs `tools/mesen/Firmware/gba_bios.bin`: run `scripts/fetch_emu.py gba-bios` once (`setup.md`).
 - **Release:** IPS ≤16 MiB (building on an earlier IPS patch means shipping a combined patch or documenting the order). Otherwise xdelta. BPS also works for ≤16 MiB.

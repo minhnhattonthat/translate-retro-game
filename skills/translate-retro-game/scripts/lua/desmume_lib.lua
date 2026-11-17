@@ -22,7 +22,16 @@ end
 function L.safe(fn) return function(...) local ok, e = pcall(fn, ...); if not ok then L.fail(e) end end end
 -- memory.registerexec(addr, fn) / registerwrite(addr, size, fn), memory.readbyte(addr) etc. are DeSmuME's own.
 -- Exec hooks fire under JIT on the QA fork; stock DeSmuME needs --debugger (interpreter) for them.
-function L.on_exec(addr, fn) memory.registerexec(addr, L.safe(fn)) end
+local execFns = {}
+function L.on_exec(addr, fn)
+  if not execFns[addr] then
+    execFns[addr] = {}
+    memory.registerexec(addr, L.safe(function(...)
+      for _, cb in ipairs(execFns[addr]) do cb(...) end
+    end))
+  end
+  execFns[addr][#execFns[addr] + 1] = fn
+end
 -- CPU and DMA accesses both fire. fn(addr, size); read the value with memory.readbyte etc.
 function L.on_read(lo, hi, fn) memory.registerread(lo, hi - lo + 1, L.safe(fn)) end
 function L.on_write(lo, hi, fn) memory.registerwrite(lo, hi - lo + 1, L.safe(fn)) end
@@ -120,7 +129,7 @@ emu.registerafter(L.safe(function()
     cur = q.p
     q.frames = q.frames - 1
     if q.frames <= 0 then table.remove(queue, 1) end
-  elseif (MASH or 0) > 0 and n % MASH < 6 then cur = parse(MASH_KEY or "a")
+  elseif (MASH or 0) > 0 and n % MASH < (MASH_HOLD or 6) then cur = parse(MASH_KEY or "a")
   else cur = NONE end
   if ((SHOT_EVERY or 0) > 0 and n % SHOT_EVERY == 0) or shotset[n] then L.shot(string.format("f%06d.png", n)) end
   if (STATE_EVERY or 0) > 0 and n % STATE_EVERY == 0 then savestate.save(string.format("%ss%06d.dst", OUT, n)) end

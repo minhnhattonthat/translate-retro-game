@@ -197,7 +197,7 @@ def main(argv=None):
     g.add_argument("--tbl")
     ap.add_argument("--min", type=int, default=4, help="minimum run length in characters")
     ap.add_argument("--range", action="append", default=[])
-    ap.add_argument("--limit", type=int, default=200)
+    ap.add_argument("--limit", type=int, default=200, help="maximum rows to print; 0 = unlimited")
     ap.add_argument("--kanji-runs", action="store_true", help="also report kana-free runs (names, kanji lists)")
     ap.add_argument("--halfwidth", action="store_true")
     ap.add_argument("--gba-ptrs", action="store_true")
@@ -243,7 +243,7 @@ def main(argv=None):
                 skipped += 1
                 continue
             found.append((s, e, slots))
-    for s, e, slots in found[:a.limit]:
+    for s, e, slots in found[:a.limit or None]:
         via = f"  <- 0x{slots[0]:06X}" + (f" +{len(slots) - 1}" if len(slots) > 1 else "") if slots else ""
         print(f"0x{s:06X} {e - s:4d}B  {decode(b[s:e])}{via}")
     total = sum(e - s for s, e, _ in found)

@@ -11,23 +11,26 @@ class Img:
     pass
 
 def walk(d, p, end, out, ctx):
+    pending = None
     while p < end:
         t, _, sz, nx, off = struct.unpack_from('<HHIII', d, p)
         if sz == 0: break
-        if t in (2, 3): walk(d, p + off, p + sz, out, ctx)
+        if t in (2, 3): walk(d, p + off, p + sz, out, [] if t == 3 else ctx)
         elif t == 4:
             b = p + off
             hs, _, fmt, order, w, h, bpp, pa, ha = struct.unpack_from('<HHHHHHHHH', d, b)
             idx_start, pix_start, pix_end = struct.unpack_from('<III', d, b + 0x18)
             i = Img(); i.w, i.h, i.fmt, i.swz, i.bpp = w, h, fmt, order, BPP.get(fmt)
-            i.pix = b + pix_start; i.pix_end = b + pix_end; i.block = p; i.pal = None
+            i.pix = b + pix_start; i.pix_end = b + pix_end; i.block = p; i.pal = pending
+            pending = None
             ctx.append(i); out.append(i)
         elif t == 5:
             b = p + off
             hs, _, fmt, order, w, h = struct.unpack_from('<HHHHHH', d, b)
             idx_start, pix_start, pix_end = struct.unpack_from('<III', d, b + 0x18)
             pal = (fmt, w, h, b + pix_start)
-            if ctx: ctx[-1].pal = pal
+            if ctx and ctx[-1].pal is None and ctx[-1].fmt in (4, 5, 6, 7): ctx[-1].pal = pal
+            else: pending = pal
         p += sz
 
 def parse(d):

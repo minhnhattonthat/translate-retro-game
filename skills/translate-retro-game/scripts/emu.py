@@ -28,7 +28,7 @@ Exit codes: 0 ok, 2 Lua error (message printed), 3 smoke failed, 124 timeout, ot
 Emulator lookup: --emu, then tools/**/<exe> in the current repo (each project keeps its own downloaded copy), then env
 MESEN / DESMUME / PCSX_REDUX / PPSSPP_HEADLESS.
 """
-import argparse, configparser, glob, json, os, shutil, struct, subprocess, sys, tempfile, time
+import argparse, configparser, glob, json, os, re, shutil, struct, subprocess, sys, tempfile, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -115,6 +115,40 @@ def mesen_state(exe, state, out):
     return fixed
 
 
+def mesen_run(exe, out):
+    """Private portable config: Mesen's CLI cannot override string-valued save paths."""
+    source = os.path.dirname(os.path.abspath(exe))
+    runtime = os.path.join(out, "_mesen")
+    saves = tempfile.mkdtemp(prefix="saves-", dir=out)
+    os.makedirs(runtime, exist_ok=True)
+    # Share immutable binaries where possible; settings and saves belong only to this run.
+    files = [exe] + [p for p in glob.glob(os.path.join(source, "*"))
+                     if os.path.isfile(p) and p.lower().endswith((".dll", ".so", ".dylib"))]
+    files += glob.glob(os.path.join(source, "Firmware", "*"))
+    for src in files:
+        if not os.path.isfile(src):
+            continue
+        dst = os.path.join(runtime, os.path.relpath(os.path.abspath(src), source))
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        if os.path.exists(dst):
+            os.remove(dst)
+        try:
+            os.link(src, dst)
+        except OSError:
+            shutil.copy2(src, dst)
+    config = os.path.join(source, "settings.json")
+    cfg = {}
+    if os.path.exists(config):
+        with open(config, encoding="utf-8-sig") as f:
+            cfg = json.load(f)
+    cfg.setdefault("Preferences", {}).update(OverrideSaveDataFolder=True, SaveDataFolder=saves)
+    with open(os.path.join(runtime, "settings.json"), "w", encoding="utf-8") as f:
+        json.dump(cfg, f)
+    private_exe = os.path.join(runtime, os.path.basename(exe))
+    mesen_portable(private_exe)
+    return private_exe, saves
+
+
 def desmume_ini(exe, out, battery):
     """DeSmuME has no Lua CLI flag: with [Scripting] AutoLoad=1 it runs <[PathSettings] Lua>/<rom name>.lua when the
     ROM loads. Point Lua and StateSlots (and Battery for --sav) at the run dir, keep emulating when unfocused, and
@@ -198,7 +232,7 @@ def run_psp(a):
     else:
         code = 0
     if a.sheet and code in (0, 3) and glob.glob(os.path.join(a.out, "f[0-9]*.png")):
-        sheetmod.make(a.out, changed=0.02)
+        sheetmod.make(a.out)
     return code
 
 
@@ -248,7 +282,7 @@ def run(a):
     err = os.path.join(out, "lua_error.txt")
     g = {"OUT": out + "/", "ERRFILE": err, "FRAMES": a.frames, "SHOT_EVERY": a.shot_every, "SHOTS": shots,
          "MASH": a.mash, "MASH_KEY": a.mash_key or MASH_KEY.get(system, "a"), "STATE_EVERY": a.state_every,
-         "SYSTEM": system}
+         "SYSTEM": system, "DEBUGGER": a.debugger, "MASH_HOLD": getattr(a, "mash_hold", 6)}
     if system == "psx":  # LuaJIT inside PCSX-Redux: pass the route inline rather than relying on io
         g["ROUTE_STEPS"] = route and read_route(route)
     else:
@@ -266,7 +300,13 @@ def run(a):
     else:
         g["STATE_OUT"] = a.state_out and os.path.abspath(a.state_out)
     head = "\n".join(f"{k} = {lua_value(v)}" for k, v in g.items() if v is not None)
-    head += "".join(f"\n{kv.split('=', 1)[0].strip()} = {kv.split('=', 1)[1]}" for kv in a.var or [])
+    reserved = set(g) | {"L", "VSYNC", "ROUTE", "ROUTE_STEPS", "STATE_IN", "STATE_OUT", "STATE_IN_SLOT", "STATE_OUT_SLOT"}
+    for kv in a.var or []:
+        name, sep, value = kv.partition("=")
+        name = name.strip()
+        if not sep or not re.fullmatch(r"[A-Za-z_][A-Za-z_0-9]*", name) or name in reserved:
+            sys.exit(f"--var {name!r}: use NAME=LUA with a non-driver global name")
+        head += f"\n{name} = {value}"
     parts = [head, open(os.path.join(HERE, "lua", LIB["snes" if mesen else system]), encoding="utf-8").read()]
     for s in a.script or []:  # compiled at run time inside L.safe: a syntax or top-level error exits 2, not a timeout
         src = open(s, encoding="utf-8").read()
@@ -282,19 +322,17 @@ def run(a):
     restore = []  # (path, old bytes or None): files outside --out that this run changes
     cwd = None
     sav = None
+    if mesen:
+        exe, saves = mesen_run(exe, out)
+        sav = os.path.join(saves, stem + (".sav" if system == "gba" else ".srm"))
     if a.sav:  # fresh copy per run: the game writes to the copy, never to the user's file
         dest = {"gba": os.path.join(out, stem + ".sav"), "nds": os.path.join(out, stem + ".dsv"),
                 "psx": os.path.join(out, "memcard1.mcd")}.get(system)
-        if mesen:  # Mesen (portable) reads <exe dir>/Saves/<rom name>.srm (.sav on GBA); put back what was there
-            dest = os.path.join(os.path.dirname(exe), "Saves", stem + (".sav" if system == "gba" else ".srm"))
-            os.makedirs(os.path.dirname(dest), exist_ok=True)
-            restore.append((dest, open(dest, "rb").read() if os.path.exists(dest) else None))
-            if restore[-1][1] is not None:  # on-disk copy survives even if this run is killed before restoring
-                shutil.copy(dest, os.path.join(out, "_saves_backup" + os.path.splitext(dest)[1]))
+        if mesen:
+            dest = sav
         shutil.copy(a.sav, dest)
         sav = dest
     if mesen:
-        mesen_portable(exe)
         cmd = [exe, "--testRunner", f"--timeout={a.timeout}", rom, lua]
     elif dsfork:  # own ini per run: nothing shared to restore, parallel runs are fine
         ini = os.path.join(out, "desmume.ini")
@@ -338,6 +376,8 @@ def run(a):
         p.communicate()
         rc = 124
     finally:
+        if mesen and os.path.exists(sav):
+            shutil.copy(sav, os.path.join(out, os.path.basename(sav)))
         if restore:
             time.sleep(0.5)
         for path, old in restore:
@@ -372,7 +412,7 @@ def run(a):
         else:
             print("smoke ok: final frame has content")
     if a.sheet and shots:
-        sheetmod.make(out, changed=0.02)
+        sheetmod.make(out)
     return rc
 
 
@@ -389,7 +429,8 @@ if __name__ == "__main__":
     ap.add_argument("--state-out")
     ap.add_argument("--state-every", type=int, default=0, help="save DIR/s<frame>.<ext> every N frames (not NDS)")
     ap.add_argument("--sav", "--memcard", help="battery save, PS1 memory card or PSP save folder; a fresh copy is used each run")
-    ap.add_argument("--mash", type=int, default=0, help="press --mash-key for 6 frames every N frames once the route ends")
+    ap.add_argument("--mash", type=int, default=0, help="press --mash-key every N frames once the route ends")
+    ap.add_argument("--mash-hold", type=int, default=6, help="frames to hold each mash press (default 6)")
     ap.add_argument("--mash-key", help="default a (cross on PS1)")
     ap.add_argument("--script", action="append", help="Lua appended after the driver (repeatable)")
     ap.add_argument("--var", action="append", help="NAME=LUA global set before the scripts (repeatable)")

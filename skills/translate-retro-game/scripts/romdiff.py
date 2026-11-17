@@ -15,7 +15,7 @@ a file (one range + comment per line), not a single long Makefile line.
 Bytes past the end of ORIG count as 0xFF.
 
 python -X utf8 romdiff.py --selftest"""
-import sys
+import bisect, mmap, sys
 
 def load_writes(path):
 	writes = []
@@ -34,8 +34,10 @@ def check(orig, new, allowed, writes):
 	errs = []
 	if len(new) < len(orig):
 		return ["NEW is shorter than ORIG (%d < %d)" % (len(new), len(orig))], 0
-	padded = orig + b"\xff" * (len(new) - len(orig))
-	covered = set(allowed)
+	def original(lo, hi):
+		return orig[lo:hi] + b"\xff" * max(0, hi - max(lo, len(orig)))
+	# Keep ranges compact: materialising a disc's allowed offsets as Python ints costs gigabytes.
+	spans = [(r.start, r.stop) if isinstance(r, range) else (r, r + 1) for r in allowed]
 	last_end, last_by = -1, None
 	for off, want_orig, want_new, by in sorted(writes):
 		end = off + len(want_orig)
@@ -43,24 +45,38 @@ def check(orig, new, allowed, writes):
 			errs.append("0x%06X: %s overlaps %s" % (off, by, last_by))
 		if end > last_end:
 			last_end, last_by = end, by
-		if padded[off:end] != want_orig:
-			errs.append("0x%06X: %s expects orig %s, ORIG has %s" % (off, by, want_orig.hex(), padded[off:end].hex()))
+		if original(off, end) != want_orig:
+			errs.append("0x%06X: %s expects orig %s, ORIG has %s" % (off, by, want_orig.hex(), original(off, end).hex()))
 		if new[off:end] != want_new:
 			errs.append("0x%06X: %s wrote %s, NEW has %s (overwritten later?)" % (off, by, want_new.hex(), new[off:end].hex()))
-		covered.update(range(off, end))
-	bad, ok = [], 0
-	for i in range(len(new)):
-		if padded[i] == new[i]:
-			continue
-		if i in covered:
-			ok += 1
+		spans.append((off, end))
+	merged = []
+	for lo, hi in sorted(spans):
+		if merged and lo <= merged[-1][1]:
+			merged[-1] = (merged[-1][0], max(hi, merged[-1][1]))
 		else:
-			bad.append(i)
+			merged.append((lo, hi))
+	starts = [lo for lo, _ in merged]
+	bad, bad_count, ok = [], 0, 0
+	for base in range(0, len(new), 2352):  # skip identical raw-disc sectors in C, inspect only changed sectors
+		a, b = original(base, min(base + 2352, len(new))), new[base:base + 2352]
+		if a == b:
+			continue
+		for j, (old, val) in enumerate(zip(a, b)):
+			if old == val:
+				continue
+			i = base + j
+			k = bisect.bisect_right(starts, i) - 1
+			if k >= 0 and i < merged[k][1]:
+				ok += 1
+			else:
+				bad_count += 1
+				if len(bad) < 50: bad.append(i)
 	for i in bad[:50]:
 		o = ("%02X" % orig[i]) if i < len(orig) else "--"
 		errs.append("0x%06X: orig=%s new=%02X" % (i, o, new[i]))
-	if bad:
-		errs.append("%d differing bytes outside writes and allowed ranges" % len(bad))
+	if bad_count:
+		errs.append("%d differing bytes outside writes and allowed ranges" % bad_count)
 	return errs, ok
 
 def selftest():
@@ -85,18 +101,24 @@ def main(argv):
 		del args[i:i + 2]
 	if len(args) < 2:
 		sys.exit(__doc__)
-	orig, new = (open(p, "rb").read() for p in args[:2])
-	allowed = set()
+	allowed = []
 	for arg in args[2:]:                       # "FFD7" or "200000-20FFFF" (inclusive, hex)
 		lo, _, hi = arg.partition("-")
 		lo = int(lo, 16); hi = int(hi, 16) if hi else lo
-		allowed.update(range(lo, hi + 1))
-	errs, ok = check(orig, new, allowed, writes)
+		allowed.append(range(lo, hi + 1))
+	with open(args[0], "rb") as old_file, open(args[1], "rb") as new_file:
+		from contextlib import ExitStack
+		with ExitStack() as stack:
+			def mapped(f):
+				return stack.enter_context(mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)) if f.seek(0, 2) else b""
+			orig, new = mapped(old_file), mapped(new_file)
+			size = len(new)
+			errs, ok = check(orig, new, allowed, writes)
 	for e in errs:
 		print(e)
 	if errs:
 		sys.exit(1)
-	print("identical (%d bytes, %d allowed diffs, %d writes)" % (len(new), ok, len(writes)))
+	print("identical (%d bytes, %d allowed diffs, %d writes)" % (size, ok, len(writes)))
 
 if __name__ == "__main__":
 	main(sys.argv)

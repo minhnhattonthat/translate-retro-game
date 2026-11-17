@@ -48,7 +48,7 @@ Distilled from eight finished fan translations across SNES, GBA, NDS and PS1. Re
    - list control codes with their argument counts. A wrong argument count desyncs everything after it.
    - **Confirm the font by hooking the draw call**, not by how glyphs look: games carry several fonts and tables. A table built by eye needs a cross-check against a decoded known string; after fixing it, regenerate every `jp` field from the ROM, diff the old and new `jp` per id, and re-queue every changed id that already has a translation: those were written from the wrong text.
    - Note the text orientation: vertical text, or a handheld game played sideways, changes the whole font and box plan.
-   - **Code = font cell, in no standard order** (no Shift-JIS anywhere, relative search finds nothing): look for a small charset file (a UTF-16 list of kana and ASCII), then read the kanji off the font itself. Template-match each cell against a system font for a first guess (~60% right; for 12×12 fonts MS Gothic's built-in 12 px bitmaps got ~90% of kanji, though kana still needed eyes), have reviewer subagents read zoomed labelled cell sheets with 3 script lines per code (only codes the script uses), then have readers scan the whole decoded script for look-alike swaps (大/太). Duplicate values break `encode(decode())`: two codes read as the same kanji means one is wrong or the font has a real duplicate.
+   - **Code = font cell, in no standard order** (no Shift-JIS anywhere, relative search finds nothing): look for a charset or name-entry table, then read zoomed cell sheets labelled with both code and proposed character, with script context. System-font matching is only a first guess and fails badly on bold, outlined or antialiased glyphs; cross-check the decoded script for look-alike swaps (大/太). Duplicate glyphs need noncanonical codes escaped to preserve `encode(decode())`.
 5. **Pointers:** find the tables and the format (16-bit + bank, 24-bit, GBA `0x08000000|off`). Note which code reads them.
 6. **Graphics text:** survey tile-drawn Japanese (`references/graphics.md` §Survey).
 7. Record everything in `docs/re/*.md`, one file per subsystem, with an index line in AGENTS.md/CLAUDE.md. Mark each finding **verified** (with how: decoded known string, corrupt-and-boot, breakpoint on the draw path, roundtrip test) or **guess** (with why), and promote a guess before code depends on it.
@@ -62,6 +62,7 @@ Unpack → repack with no edits → compare bytes. Make this the first test in t
 
 - Decode every string through the table codec (`scripts/tbl.py`). Unknown bytes become `[XX]` so they roundtrip.
 - **Roundtrip test:** `encode(decode(bytes)) == bytes` for every string.
+- **Bytecode can jump inside text pools:** split at call/goto/jump-table targets, and inspect every pointer landing inside an extracted string before relocating it; delimiter splitting alone misses these entry points.
 - **Coverage test, run against the ORIGINAL ROM:** the text ranges are fully covered, with no unexplained gaps. A gap is usually text you missed, or data you are about to corrupt.
   - Dump every pointer target, including strings referenced from the EXE, arm9/overlays or code banks, not only the script banks.
   - An unknown control code must not end a string: decode it as `[XX]` and keep going, then check the next bytes still decode. Strings silently cut at the first unknown code left the rest Japanese.
@@ -103,9 +104,10 @@ Translators write to the limits you give them; a guessed limit means a re-fit pa
 
 Measure the limit from pixels, not from the engine's cell count: in a zoomed shot, find the last column where a glyph still shows. One game's boxes showed one cell less than the width variable said, so the wrap limit was 4 px too wide. Only lines that landed in that 4-px window got clipped, and they first surfaced in a playtest, across every box type. Test with a line that fills each box to the computed limit exactly.
 
-Then boot a **glyph torture line**: all printable ASCII plus double spaces, so missing glyphs and wrong widths show at once. When the marker build hangs, bisect by tables (half the lines marked, half original) until one entry is left.
+Then boot a **glyph torture line**: all printable ASCII plus double spaces, so missing glyphs and wrong widths show at once. When the marker build hangs, bisect by tables (half the lines marked, half original) until one entry is left; compare same-length and grown markers to separate buffer limits from relocation bugs.
 
 Measure every game fresh; limits from another game, even the same engine, have been wrong. The lint warns on any line whose box variant has no measured budget yet.
+Calibrate the fit lint on the original JP first (zero unexplained errors), including inter-glyph spacing, page resets and the last-line cursor. Trace every glyph-draw path: credits, furigana and overlays may bypass the dialogue VWF.
 
 Never derive a limit from the Japanese length. Limits guessed that way (a 16-character name cap, "~57 px like the JP name") shipped overflow in three games, found by players. How to measure:
 - **List fields** (items, skills, names in a menu row): the budget is the x of the next thing drawn on the row (count, price, cost, a divider) minus the field's x, read off a shot showing the longest name.
@@ -148,12 +150,14 @@ Wire all of these into the one-command check (Step 0) so the pre-commit hook run
   - **Relocated strings leave no reader behind:** after moving strings, scan the original ROM's code for references to each vacated address (16/24-bit literals, split bank + offset immediates like 65816 `LDA #bank` / `LDY #ptr`, ARM literal pools, MIPS `lui`/`addiu` pairs) and fail on any the build didn't rewrite. A stale `LDA #$85` left one game's Load screen black.
   - Free-space overflow raises an error instead of silently wrapping. Assembler blocks can collide too: with asar, end each free-space block with `warnpc <next block's start>` (a new `org` silently overwrote the VWF width table and froze the game).
   - Graphics chunks stay inside the windows the code can reach.
+  - For recompressed archives or relaid discs, compare decoded leaves as well: same leaf set, only intended leaves changed. A raw diff cannot identify which compressed resource was corrupted.
 - **Leftover Japanese:**
   - text side: regex `[぀-ヿ一-鿿]` over every `en`;
   - ROM side: `scripts/jp_left.py`. Best: `--slots FILE` listing every pointer slot your insert step writes, so only text a pointer reaches is reported (on one game 185 `--gba-ptrs` hits became 0 real ones); `--known FILE` lists intended-Japanese offsets to skip. On GBA without a slot list, run `--gba-ptrs` **without** `--orig`. Relocation leaves the old Japanese unreferenced, and broken pointers can land mid-line in it; `--orig` hides that case, because the bytes the pointer lands on differ from what was at that offset originally. Add `--halfwidth` for debug and system text, then triage, since it is noisier. With a one-byte-per-character table, `--tbl` over a whole ROM is all noise (any byte decodes): check only what a pointer, or the code that sets the text pointer, reaches;
   - runtime side: the draw-hook scan (`emulator-qa.md`).
   - A text-side check alone once passed with 3 Japanese lines still reachable behind a pointer table.
   - Run `jp_left.py` on the marker build too (phase 5), not only at release: what it finds there is text the extractor missed, found before translation instead of after.
+  - Scan decompressed text too (`jp_left.py` cannot see inside packed blocks); generate `--slots` from the built image's actual pointer locations.
 - **Release gate:** lint → roundtrip → build → tests → smoke → `jp_left.py` → the screen tour (`emulator-qa.md` §Screen tour) → `qa_gate.py check` (visual tour and story pass) → `docs/polish.md` all ticked, stop at the first failure. The release script runs the tour itself (with an opt-out flag for iteration), so a release cannot skip it.
 
 ## Pitfalls that reached a user's playtest
@@ -207,6 +211,7 @@ When an older fan patch exists and the user wants to build on it:
 - Zip = patch(es) + README/PATCHING.txt only, with no .cue. Name it `Game_EN_vX.Y.bps`. Use ZIP_STORED for xdelta.
 - **`tools/release.py`** runs, stopping at the first failure: build → tests → smoke → `jp_left.py` → `qa_gate.py check` on every `work/qa/**/manifest.tsv` (visual tour and story pass) → `textcover.py` (`emulator-qa.md` §Text coverage) → no unticked line in `docs/polish.md` → no template placeholder in the repo `README.md` → debug tool off in this build → patch → re-apply to a clean original and compare → zip. It handles `--help` without building, and refuses to overwrite an existing version's files without `--force` (a `--help` call once overwrote a released patch). Keep the playable patched image in `build/` (the user tests from it); the zip holds only the patch.
 - Release dirs stay local and gitignored. Publishing is the user's call.
+- Retire a superseded QA round explicitly by renaming its `manifest.tsv` to `manifest.tsv.retired`; both the release loop and guard scan every exact `manifest.tsv` under `work/qa/`, including archive folders.
 
 ## Publish (only when the user asks)
 

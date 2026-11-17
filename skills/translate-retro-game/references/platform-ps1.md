@@ -3,6 +3,7 @@
 - **Disc rebuild:**
   - `dumpsxiso -x tree -s layout.xml disc.cue`, patch files in `tree/`, then `mkpsxiso -y layout.xml` with the working directory set to `tree/`.
   - Identity test: the rebuilt image's sha1 equals the original's.
+  - Editing raw Mode 2 Form 1 sectors also requires recomputing EDC/ECC; a correct payload alone is not a valid sector.
 - **Close the user's emulator before building.** DuckStation holds the .bin open: "Cannot open or create output image".
 - **Archives** (`*.DAT`) use a game-specific LZ; reimplement it and roundtrip-test it.
   - Fixed load buffers cap text size. Enforce them in the build, or overflow shows garbage in-game.
@@ -10,7 +11,7 @@
 - **EXE and overlays:** armips for hooks.
   - Patch strings in place where possible, never touch the tails of code overlays, and remap `lui`/`addiu` pairs when moving strings.
   - MIPS immediates sign-extend: `sltiu`/`addiu` with 0x8000-0xFFFF compare or add a negative number (`sltiu ...,0x8800` never matched; `addiu 0xb2f4` jumped to 0x8005b2f4 and hung boot). Use `ori` to build an unsigned low half, and `lui` + `addiu` with the high half rounded up when the low half is ≥ 0x8000.
-  - R3000 load delay: a load in a jump's delay slot isn't ready for the first instruction at the target. A hook that did this drew every glyph as a solid block.
+  - R3000 load delay: a load in a jump's delay slot isn't ready for the first instruction at the target. Check every load-then-use pair; PCSX-Redux's dynarec can hide these bugs, so run new asm with `--debugger` (interpreter) too.
   - Short string literals (`char buf[] = "..."`) compile to `lw`/`lh`/`lb` copies from `lui` or `$gp` + offset, not a strcpy call, so a pointer search misses them. Get `$gp` from the `lui`/`addiu $gp` pair at startup and search for `$gp`-relative loads.
   - armips `equ` is textual substitution: `-PADIDX` with `PADIDX equ A+B` becomes `-A+B`. Parenthesise every `equ` value.
   - Unit-test asm hooks (e.g. under unicorn) with exact-PC asserts: a test that accepted any fetch fault passed a hook that hung the game.
@@ -20,6 +21,8 @@
   - Early Sony first-party games draw with the BIOS kanji font (`Krom2RawAdd`, B0:51). Hooking that call to draw two letters per cell is the cheap way to English.
 - **Windows:** check the box size (e.g. 30 chars × 3 lines). Give agents the soft limit; if the build splits overflow into a second window, pacing breaks.
 - **FMV subtitles (STR):** burn ASS subtitles with ffmpeg and re-insert with jPSXdec `-replaceframes`. For timing with faster-whisper, turn VAD **off**; with it on, lines went missing.
+  - `dumpsxiso` can extract STR as 2336-byte sectors; ffmpeg's psxstr demuxer expects 2352. Check sector size and the replaced frame's sector budget before judging decoder failures.
+  - Lay out subtitles in displayed proportions: a 640×240 movie stretched vertically needs a different canvas from a 320×480 still stretched horizontally. Verify against the in-game frame.
 - **Names stored in save files** need fixing on load, or old saves show old names.
 - **Emulator:** `emu.py game.cue` (BIOS: `scripts/fetch_emu.py psx-bios` once, used automatically; or `--bios FILE`) drives PCSX-Redux headless (see `setup.md` and `emulator-qa.md` §PCSX-Redux; SPU muted at 8x speed, take savestates on quiet screens, `--sav card.mcd` for a memory card). Japanese games confirm with circle (`--mash-key circle`). Ask users for a memory card, not DuckStation savestates: those can't be loaded here. States go stale when a rebuild shifts file LBAs; regenerate them.
 - **Release:** xdelta against the **.bin** only. No .cue in the zip; PATCHING.txt tells the player to keep their own cue.

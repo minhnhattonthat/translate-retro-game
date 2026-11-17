@@ -29,6 +29,8 @@ function L.safe(fn) return function(...) local ok, e = pcall(fn, ...); if not ok
 -- one hit (tested: a hook on 0x80000080 fired once in 400 frames with false, 1102 times with true).
 local bps = {}
 local function bp(addr, kind, width, fn)
+  if not DEBUGGER then error("L.on_exec/on_read/on_write require emu.py --debugger", 0) end
+  if kind == "Exec" and L.frame > 0 then error("Register PCSX exec hooks at script load, before L.on_frame runs", 0) end
   local cb = L.safe(fn)
   bps[#bps + 1] = PCSX.addBreakpoint(addr, kind, width, "emu.py",
                                      function(...) cb(...); PCSX.resumeEmulator(); return true end)
@@ -89,7 +91,7 @@ VSYNC = PCSX.Events.createEventListener("GPU::Vsync", L.safe(function()
     apply(q.p)
     q.frames = q.frames - 1
     if q.frames <= 0 then table.remove(queue, 1) end
-  elseif (MASH or 0) > 0 and n % MASH < 6 then apply(parse(MASH_KEY or "cross"))
+  elseif (MASH or 0) > 0 and n % MASH < (MASH_HOLD or 6) then apply(parse(MASH_KEY or "cross"))
   else apply(NONE) end
   if ((SHOT_EVERY or 0) > 0 and n % SHOT_EVERY == 0) or shotset[n] then L.shot(string.format("f%06d.png", n)) end
   if (STATE_EVERY or 0) > 0 and n % STATE_EVERY == 0 then L.save_state(string.format("%ss%06d.sstate", OUT, n)) end

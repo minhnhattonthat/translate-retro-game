@@ -146,8 +146,8 @@ def main():
         r = route(a.presses, a.gap, 60 if a.wait is None else a.wait)
     else:
         r = f"{a.wait or 60} -"
-    # DeSmuME (JIT) shows grey for ~85 frames after a state load: idle through it, keep it out of the sheets
-    warm = 90 if ext == "dst" and (new > 0 or a.state) else 0
+    # DeSmuME QA fork can show grey for ~125 frames after a state load: keep it out of the sheets
+    warm = 150 if ext == "dst" and (new > 0 or a.state) else 0
     if warm:
         r = f"{warm} -;{r}"
     out = os.path.join(sess, "_run")

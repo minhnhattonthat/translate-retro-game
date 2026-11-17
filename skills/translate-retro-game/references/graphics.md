@@ -22,7 +22,9 @@ A tour only sees what it visits. Also do a **static sweep**: render every raw an
 ## Edit and re-import
 
 - **Fixed palette indices.** `tiles.py render` with the palette dump, draw in those colours only, and re-import with the `tiles.py import` command it prints. The importer refuses colours outside the palette; save as RGB/RGBA PNG (it refuses indexed PNGs), and keep the editor from dithering or smoothing.
+  - Repeated palette colours make RGB round trips ambiguous: preserve original indices or use distinct diagnostic colours, then check every palette that shares the tiles.
 - **Pixel font, drawn or traced per glyph.** A downscaled TrueType font turns to mush at 8 px. Zoom in (`sheet.py --zoom 4`) on the in-game shot and check every letter before handover.
+  - Reuse glyphs from the game's own English art when available; check the final display scale, since downscaling can erase single-pixel strokes.
 - **Shared tiles:** a tile used by another screen (`vramfind.py --others other.vram.bin` marks it `shared`, `dup:N` means several ROM copies) must not be edited in place. Allocate new tiles and point this screen's tilemap at them.
 - **Tilemaps can be record streams** (run-length, per-row headers), not flat arrays. Decode the format before moving tiles, and roundtrip-test it like text.
 - **More tiles than the original:** free VRAM slots exist only if no other scene loads there. Check with dumps from neighbouring screens before claiming a slot.
@@ -55,6 +57,7 @@ Done one screen at a time in the main thread, graphics text was the longest phas
 
 There are no tiles or VRAM dumps to chase: images are stored whole (PSP: GIM) inside archives. Find them by unpacking the game, not by tracing the screen. Contact-sheet every unique image, redraw the Japanese ones at the same pixel size, and let the build write them back byte-for-byte compatible (`platform-psp.md`; `typeset.py`, `gim.py`, `showgim.py`). Rules that held:
 - Match the original's look: copy its colour (`typeset.dominant`), its width (condensed fonts + `xscale` for tall narrow lettering), its glow or outline. Read the layout file for the sprite's real size and anchor so text sits where the sprite is drawn.
+  - Donor-region textures can swap circle/cross icons or use different atlas packing: transplant individual labels and verify them against the Japanese layout in game.
 - Remove old text over artwork with `typeset.inpaint`, then draw; a flat clear leaves a hole.
 - Keep each redraw script in the repo (`tools/gen_gfx.py`-style, one section per screen, a dictionary of translations): rerunning it regenerates every PNG, so a wording change costs one command.
 - Check every replacement next to the original, then once in the emulator; row-wise bands (`bands()`/`segments()` helpers in the generator) find the original text rows to redraw at the same places.

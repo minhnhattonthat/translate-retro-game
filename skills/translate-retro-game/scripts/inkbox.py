@@ -1,9 +1,10 @@
 """Is the text centred in its box? Measures ink margins from a screenshot, so alignment isn't judged by eye.
 
-    python inkbox.py SHOT.png x,y,w,h [x,y,w,h ...] [--tol 2] [--vert] [--diff 40] [--bg R,G,B]
+    python inkbox.py SHOT.png x,y,w,h [x,y,w,h ...] [--tol 2] [--vert] [--diff 40] [--bg R,G,B | --ink R,G,B]
 
 Each rect is the inside of one selection box or bubble: crop inside its border. Ink is any pixel more than --diff
 from the background in some channel; the background is the rect's most common colour unless --bg gives it.
+For gradients/art, --ink R,G,B instead selects pixels within --diff of the text's fill colour in every channel.
 Prints the margins of each rect. Exit 1 if left and right margins differ by more than --tol px (with --vert, top and
 bottom too), 2 if a rect holds no ink. Use a higher --diff on gradient windows. Check text meant to be centred only:
 compare with the original's shot when unsure.
@@ -14,25 +15,27 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from sheet import read_png, write_png  # noqa: E402
 
 
-def margins(rows, bpp, rect, diff=40, bg=None):
+def margins(rows, bpp, rect, diff=40, bg=None, ink=None):
     """(left, right, top, bottom) empty pixels around the ink in rect, or None if it holds no ink."""
     x, y, w, h = rect
     px = [[tuple(rows[y + j][(x + i) * bpp:(x + i) * bpp + 3]) for i in range(w)] for j in range(h)]
     bg = bg or collections.Counter(p for r in px for p in r).most_common(1)[0][0]
-    ink = [(i, j) for j, r in enumerate(px) for i, p in enumerate(r) if max(abs(a - b) for a, b in zip(p, bg)) > diff]
-    if not ink:
+    points = [(i, j) for j, r in enumerate(px) for i, p in enumerate(r)
+              if (max(abs(a - b) for a, b in zip(p, ink)) <= diff if ink is not None
+                  else max(abs(a - b) for a, b in zip(p, bg)) > diff)]
+    if not points:
         return None
-    xs, ys = [i for i, _ in ink], [j for _, j in ink]
+    xs, ys = [i for i, _ in points], [j for _, j in points]
     return min(xs), w - 1 - max(xs), min(ys), h - 1 - max(ys)
 
 
-def check(path, rects, tol=2, vert=False, diff=40, bg=None):
+def check(path, rects, tol=2, vert=False, diff=40, bg=None, ink=None):
     w, h, bpp, rows = read_png(path)
     rc = 0
     for r in rects:
         if r[0] < 0 or r[1] < 0 or r[0] + r[2] > w or r[1] + r[3] > h:
             raise SystemExit(f"{r} is outside the {w}x{h} image")
-        m = margins(rows, bpp, r, diff, bg)
+        m = margins(rows, bpp, r, diff, bg, ink)
         if m is None:
             print(f"{r}: NO INK")
             rc = max(rc, 2)
@@ -59,6 +62,8 @@ def _selftest():
         assert check(p, [(0, 0, 17, 10)], tol=0, vert=True) == 1
         assert check(p, [(14, 0, 5, 10)]) == 2  # no ink here
         assert check(p, [(0, 0, 20, 10)], bg=(0, 0, 128), tol=3) == 0
+        gradient = [bytes(c for x in range(20) for c in ((255,) * 3 if 5 <= x < 12 else (x * 8,) * 3))]
+        assert margins(gradient, 3, (0, 0, 20, 1), diff=0, ink=(255, 255, 255)) == (5, 8, 0, 0)
     print("selftest ok")
 
 
@@ -69,11 +74,14 @@ def main():
     ap.add_argument("--tol", type=int, default=2, help="allowed margin difference in px; an odd gap always leaves 1")
     ap.add_argument("--vert", action="store_true", help="also check top against bottom")
     ap.add_argument("--diff", type=int, default=40)
-    ap.add_argument("--bg", help="background R,G,B")
+    colours = ap.add_mutually_exclusive_group()
+    colours.add_argument("--bg", help="background R,G,B")
+    colours.add_argument("--ink", help="text fill R,G,B (for gradients/art)")
     a = ap.parse_args()
     rects = [tuple(int(v) for v in r.split(",")) for r in a.rects]
     bg = tuple(int(v) for v in a.bg.split(",")) if a.bg else None
-    return check(a.png, rects, a.tol, a.vert, a.diff, bg)
+    ink = tuple(int(v) for v in a.ink.split(",")) if a.ink else None
+    return check(a.png, rects, a.tol, a.vert, a.diff, bg, ink)
 
 
 if __name__ == "__main__":

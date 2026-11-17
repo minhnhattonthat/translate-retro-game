@@ -58,8 +58,9 @@ class Table:
                     if name in TERMINATORS and length is None:
                         return "".join(out), pos - start
                     break
-                if self.enc.get(self.dec.get(code)) == code:
-                    out.append(self.dec[code])
+                if code in self.dec:
+                    out.append(self.dec[code] if self.enc[self.dec[code]] == code
+                               else "".join(f"[{b:02X}]" for b in code))
                     pos += k
                     break
             else:
@@ -104,4 +105,7 @@ if __name__ == "__main__":
     assert t.encode(text) == data
     s = Table(["00=\\s", "20=A"])
     assert s.decode(b"\x20\x00\x20", length=3)[0] == "A A" and s.encode("A A") == b"\x20\x00\x20"
+    s = Table(["01=A", "0203=A", "02=B", "0304=C", "04=D"])
+    text, used = s.decode(bytes.fromhex("020304"), length=3)
+    assert text == "[02][03]D" and used == 3 and s.encode(text) == bytes.fromhex("020304")
     print("selftest ok")

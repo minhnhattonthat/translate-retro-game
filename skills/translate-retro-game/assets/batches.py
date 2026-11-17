@@ -43,6 +43,11 @@ def group_of(entry):
     return entry.get("dup") or entry["id"]
 
 
+def entry_key(entry):
+    """Use id@addr when ids repeat across source records; adapt addr to the extractor's field."""
+    return f"{entry['id']}@{entry['addr']}" if "addr" in entry else entry["id"]
+
+
 def limit_label(entry):
     return f"{entry['max']}" if entry.get("max") else ""
 
@@ -73,6 +78,7 @@ def kind(char):
 
 def has_term(jp, term):
     """term occurs as a whole kana or kanji run: ミン isn't in タイミング, くも isn't in ぼくも."""
+    jp = jp.replace(" / ", "")
     for m in re.finditer(re.escape(term), jp):
         a, b = m.start(), m.end()
         if (a == 0 or kind(jp[a - 1]) != kind(term[0])) and (b == len(jp) or kind(jp[b]) != kind(term[-1])):
@@ -111,8 +117,9 @@ def problems(entry, en, terms):
     if re.search(VARIABLE + r"(st|nd|rd|th)\b", en):
         out.append('ordinal suffix after a variable (write "No. [var]")')
     jp_plain = TOKEN.sub("", jp)
+    en_terms = " ".join(TOKEN.sub(lambda m: " " if m[0] in FREE else m[0], en).replace("\\n", " ").split()).lower()
     for jps, ens, avoid in terms:
-        if any(has_term(jp_plain, j) for j in jps) and not any(e.lower() in en.lower() for e in ens):
+        if any(has_term(jp_plain, j) for j in jps) and not any(" ".join(e.split()).lower() in en_terms for e in ens):
             out.append(f"glossary: {jps[0]} -> {ens[0]}")
         out += [f"glossary Avoid: {a}" for a in avoid if re.search(rf"\b{re.escape(a)}\b", en)]
     for jp_form, en_form in HONORIFICS.items():
@@ -122,7 +129,14 @@ def problems(entry, en, terms):
 
 
 def index():
-    return {e["id"]: e for _, _, entries in docs() for e in entries}
+    result = {}
+    for _, _, entries in docs():
+        for e in entries:
+            key = entry_key(e)
+            if key in result:
+                raise ValueError(f"duplicate batch key {key!r}: supply a unique addr or adapt entry_key")
+            result[key] = e
+    return result
 
 
 def read_tsv(path):
@@ -135,6 +149,7 @@ def existing():
 
 def split(size):
     """Numbers on from the last batch and leaves out ids already batched, so a repeat run can't duplicate work."""
+    index()  # reject ambiguous ids before writing any batches
     TL.mkdir(parents=True, exist_ok=True)
     (ROOT / "build").mkdir(exist_ok=True)
     taken = {r[0] for p in existing() for r in read_tsv(p)}
@@ -142,7 +157,7 @@ def split(size):
     groups = {}
     for _, _, entries in docs():
         for e in entries:
-            if needs_english(e) and e["id"] not in taken:
+            if needs_english(e) and entry_key(e) not in taken:
                 groups.setdefault(group_of(e), []).append(e)
     batches, cur, chars = [], [], 0
     for group in groups.values():
@@ -161,7 +176,7 @@ def split(size):
         path = TL / f"{name}.tsv"
         if path.exists():
             sys.exit(f"{path} already exists")
-        rows = [f"{e['id']}\t{e.get('speaker', '')}\t{e.get('box', '')}\t{limit_label(e)}\t{e['jp']}" for e in batch]
+        rows = [f"{entry_key(e)}\t{e.get('speaker', '')}\t{e.get('box', '')}\t{limit_label(e)}\t{e['jp']}" for e in batch]
         path.write_text("\n".join(rows) + "\n", encoding="utf-8", newline="\n")
         jps = " ".join(TOKEN.sub("", e["jp"]) for e in batch)
         used = [(j, ens[0]) for jpl, ens, _ in terms for j in jpl if has_term(jps, j)]
@@ -190,14 +205,14 @@ def merge(new, overwrite):
     if not overwrite:
         for _, _, entries in docs():
             for e in entries:
-                if e["id"] in new and e.get("en") and e["en"] != new[e["id"]]:
+                if entry_key(e) in new and e.get("en") and e["en"] != new[entry_key(e)]:
                     sys.exit(f"{e['id']} would lose {e['en']!r}: pass --overwrite if that is meant")
     changed = 0
     for path, doc, entries in docs():
         touched = False
         for e in entries:
-            if e["id"] in new and e.get("en") != new[e["id"]]:
-                e["en"], e["status"] = new[e["id"]], "done"
+            if entry_key(e) in new and e.get("en") != new[entry_key(e)]:
+                e["en"], e["status"] = new[entry_key(e)], "done"
                 touched = True
                 changed += 1
         if touched:
@@ -221,19 +236,16 @@ def main(argv):
         return 1 if bad else 0
     if cmd not in ("check", "merge") or not names:
         sys.exit(__doc__)
-    new, failed = {}, 0
+    failed = 0
     for batch in names:
         bad, rows = check_batch(batch, entries, terms)
-        new.update(rows)
         failed += bool(bad)
         print(f"{batch}: " + ("OK" if not bad else f"{len(bad)} problems"))
         for line in bad:
             print("  " + line)
-    if failed:
-        return 1
-    if cmd == "merge":
-        merge(new, overwrite)
-    return 0
+        if cmd == "merge" and not bad:
+            merge(rows, overwrite)
+    return 1 if failed else 0
 
 
 def _selftest():

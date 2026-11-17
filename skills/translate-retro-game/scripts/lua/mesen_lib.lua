@@ -124,7 +124,7 @@ function L.route_done() return #queue == 0 end
 emu.addEventCallback(L.safe(function()
   local q = queue[1]
   if q then emu.setInput(q.buttons, 0)
-  elseif (MASH or 0) > 0 and L.frame % MASH < 6 then emu.setInput({ [MASH_KEY or "a"] = true }, 0) end
+  elseif (MASH or 0) > 0 and L.frame % MASH < (MASH_HOLD or 6) then emu.setInput({ [MASH_KEY or "a"] = true }, 0) end
 end), emu.eventType.inputPolled)
 
 local frameFns = {}

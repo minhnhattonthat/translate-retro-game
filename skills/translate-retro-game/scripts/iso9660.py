@@ -41,6 +41,8 @@ def patch(iso_in, iso_out, repl):
         f.seek(16 * 2048 + 80); f.write(both(end // 2048))     # volume space size
 
 if __name__ == '__main__':
+    if len(sys.argv) < 3 or sys.argv[1] not in ('list', 'x', 'put') or (sys.argv[1] == 'x' and len(sys.argv) < 4) or (sys.argv[1] == 'put' and len(sys.argv) < 5):
+        sys.exit(__doc__)
     cmd, iso = sys.argv[1], sys.argv[2]
     if cmd == 'list':
         with open(iso, 'rb') as f:

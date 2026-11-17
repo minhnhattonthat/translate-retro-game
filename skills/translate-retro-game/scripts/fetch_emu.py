@@ -8,7 +8,7 @@ Stdlib only. Asset names come from each project's release page (GitHub API; set 
 Windows on ARM falls back to the x64 build (Windows emulates it) except where an ARM64 build exists.
 Exit 1 when no build exists for the OS/CPU or the archive can't be unpacked here, with the page to download from by hand.
 """
-import argparse, hashlib, json, os, platform, re, shutil, subprocess, sys, tempfile, urllib.request, zipfile
+import argparse, hashlib, json, os, platform, re, shutil, ssl, subprocess, sys, tempfile, urllib.error, urllib.request, zipfile
 
 GH = "https://api.github.com/repos/%s/releases/latest"
 DISTRIB = "https://distrib.app"
@@ -36,7 +36,7 @@ TARGETS = {
 
 RETROBIOS = "https://raw.githubusercontent.com/Abdess/retrobios/main/bios/"
 # name -> (path in retrobios, destination under --dest, sha1)
-BIOS = {"gba-bios": ("Nintendo/Game%20Boy%20Advance/gba_bios.bin", "mesen/Firmware/gba_bios.bin",
+BIOS = {"gba-bios": ("Nintendo/Game%20Boy%20Advance/GBA_bios.rom", "mesen/Firmware/gba_bios.bin",
                      "300c20df6731a33952ded8c436f7f186d25d3492"),
         "psx-bios": ("Sony/PlayStation/scph5500.bin", "bios/scph5500.bin", "b05def971d8ec59f346f2d9ac21fb742e3eb6917")}
 
@@ -66,8 +66,20 @@ def get(url, as_json=False):
     req = urllib.request.Request(url, headers={"User-Agent": "translate-retro-game"})
     if os.environ.get("GITHUB_TOKEN") and "github.com" in url:
         req.add_header("Authorization", "Bearer " + os.environ["GITHUB_TOKEN"])
-    with urllib.request.urlopen(req, timeout=60) as r:
-        return json.load(r) if as_json else r.read()
+    try:
+        import certifi
+    except ImportError:
+        cafile = None
+    else:
+        cafile = certifi.where()
+    context = ssl.create_default_context(cafile=os.environ.get("SSL_CERT_FILE") or cafile)
+    try:
+        with urllib.request.urlopen(req, timeout=60, context=context) as r:
+            return json.load(r) if as_json else r.read()
+    except urllib.error.URLError as e:
+        if isinstance(e.reason, ssl.SSLCertVerificationError):
+            sys.exit("TLS certificate verification failed: install certifi or set SSL_CERT_FILE to a trusted CA bundle")
+        raise
 
 
 def pick(name, os_, arch):

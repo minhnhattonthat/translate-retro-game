@@ -49,10 +49,12 @@ class WS:
             if ln == 126: ln = struct.unpack('>H', self._read(2))[0]
             elif ln == 127: ln = struct.unpack('>Q', self._read(8))[0]
             p = self._read(ln)
+            if op == 8: raise EOFError('PPSSPP closed the WebSocket; check ppsspp.log')
             if op == 9: self._send(10, p); continue
+            if op == 10: continue
             data += p
             if h[0] & 128: break
-        return json.loads(data)
+        return json.loads(data.decode('utf-8', errors='replace'))
 
     def _send(self, op, p):
         m = os.urandom(4); ln = len(p)
