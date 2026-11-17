@@ -22,4 +22,7 @@ sys.exit('pre-commit: NUL byte in ' + ', '.join(bad) + ' (mangled escape?)' if b
 " $src || exit 1
 fi
 
+# Docs-only commits (notes, briefs) skip the slow check.
+printf '%s\n' "$(git diff --cached --name-only)" | grep -qvE '\.(md|txt)$|^$' || exit 0
+
 sh -c "$CHECK" || { echo "pre-commit: check failed: $CHECK"; exit 1; }
