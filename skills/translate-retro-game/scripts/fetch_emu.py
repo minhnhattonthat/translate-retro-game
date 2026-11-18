@@ -12,13 +12,16 @@ import argparse, hashlib, json, os, platform, re, shutil, ssl, subprocess, sys, 
 
 GH = "https://api.github.com/repos/%s/releases/latest"
 DISTRIB = "https://distrib.app"
-# name -> (github repo | None, {(os, arch): asset regex}, manual page)
+# name -> (github repo | None, {(os, arch): asset regex | (other repo, asset regex)}, manual page)
 TARGETS = {
-    "mesen": ("nesdev-org/MesenCE", {
+    # QA fork: debugger RAM follows what the game touches, not ROM size (upstream: ~52 B per ROM byte under Lua).
+    # It ships no macOS build (CI signing needs upstream's secrets): macOS takes upstream's.
+    "mesen": ("minhnhattonthat/MesenCE", {
         ("windows", "x64"): r"_Windows\.zip$", ("windows", "arm64"): r"_Windows\.zip$",
         ("linux", "x64"): r"_Linux_x64\.zip$", ("linux", "arm64"): r"_Linux_ARM64\.zip$",
-        ("macos", "x64"): r"_macOS_x64_Intel\.zip$", ("macos", "arm64"): r"_macOS_ARM64_AppleSilicon\.zip$"},
-     "github.com/nesdev-org/MesenCE/releases"),
+        ("macos", "x64"): ("nesdev-org/MesenCE", r"_macOS_x64_Intel\.zip$"),
+        ("macos", "arm64"): ("nesdev-org/MesenCE", r"_macOS_ARM64_AppleSilicon\.zip$")},
+     "github.com/minhnhattonthat/MesenCE/releases (QA fork, `agent-qa`, QA-FORK.md; upstream github.com/nesdev-org/MesenCE)"),
     "desmume": ("minhnhattonthat/desmume", {("windows", "x64"): r"-win64\.zip$", ("windows", "arm64"): r"-win64\.zip$"},
                 "github.com/minhnhattonthat/desmume/releases (the QA fork is Windows x64 only; elsewhere build `agent-qa`, see QA-FORK.md)"),
     "pcsx": (None, {("windows", "x64"): "dev-win-x64", ("windows", "arm64"): "dev-win-x64", ("linux", "x64"): "dev-linux-x64"},
@@ -92,10 +95,13 @@ def pick(name, os_, arch):
         bid = get(base + "/manifest.json", True)["builds"][0]["id"]
         path = get(f"{base}/manifest-{bid}.json", True)["path"]
         return os.path.basename(path), DISTRIB + path
+    pattern = table[key]
+    if isinstance(pattern, tuple):  # (other repo, regex): this OS/CPU comes from elsewhere
+        repo, pattern = pattern
     rel = get(GH % repo, True)
-    hits = [a for a in rel["assets"] if re.search(table[key], a["name"])]
+    hits = [a for a in rel["assets"] if re.search(pattern, a["name"])]
     if not hits:
-        sys.exit(f"{name} {rel['tag_name']} has no asset matching {table[key]} for {os_}/{arch}: see {page}")
+        sys.exit(f"{name} {rel['tag_name']} has no asset matching {pattern} for {os_}/{arch}: see {page}")
     return hits[0]["name"], hits[0]["browser_download_url"]
 
 

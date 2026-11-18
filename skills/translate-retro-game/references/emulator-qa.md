@@ -178,6 +178,7 @@ python -X utf8 $SKILL/scripts/play.py SESSION --back 2                          
 - emu.py gives Mesen a private portable config under `<out>/_mesen/` and a fresh `<out>/saves-*/` each run, seeded only by `--sav`; shared emulator saves cannot change a route's starting menu.
 - Savestate create/load only works inside an exec memory callback; the driver queues them.
 - Runs at ~150 fps headless, so 900 frames take ~6 s.
+- RAM: any Lua script brings up the full debugger. Upstream MesenCE then commits ~52 bytes per ROM byte (per-address access counters and disassembly cache), recommitted on every state load: ~1.1 GB per run for an 18 MB GBA ROM, times the parallel runs. The QA fork (`fetch_emu.py mesen`) keeps only touched pages. A `tools/mesen` from upstream: `fetch_emu.py mesen --force` (settings and saves are kept).
 - Parallel runs need separate `--out` dirs.
 - A state from another Mesen version (header bytes 3–6, e.g. the user's 2.2.1 vs a 2.1.1 in `tools/`) loads black. emu.py re-stamps a copy with the local version and warns; if that still fails, run the user's Mesen with `--emu`.
 - A savestate carries the battery RAM: with `--state-in`, `--sav` is overridden by the SRAM inside the state (save slots showed empty). To test a save file, boot cold with `--sav` and load it in game, then save a state there.
