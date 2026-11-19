@@ -6,10 +6,11 @@
 
 1. **Text side:** the lint and leftover-Japanese regex in the build check. These are free and catch most overflow before any emulator run.
 2. **Smoke:** `emu.py build/game.sfc --out work/qa/smoke --route tools/routes/boot.txt --smoke`. This fails on a flat-colour final frame (black screen, hang). Run it after every build you hand over.
-3. **Targeted routes:** one route per changed scene or menu. Start from a savestate near the scene (made by the debug tool, below), shoot every 30–120 frames, add `--sheet`, then read the **one** sheet PNG.
-4. **Broad tour:** only after layout/wrap/engine changes. Keep a baseline (page counts or band-diff hashes per scene) and compare against it. Without a baseline, a wrap change that broke 76 scenes was found only by a full re-tour (~1 h per tour).
-5. **Agent playtest:** a playtester subagent plays a stretch turn by turn and reports what a player trips over (§Agent playtest).
-6. **The user's playtest** comes last, and only for feel and pacing.
+3. **Stress saves for all menu text** (§Stress saves): one route per save opens every menu, so item, skill, name and number overflow is checked in a few runs instead of one route per menu. Only failed screens go to the eye.
+4. **Targeted routes:** one route per changed dialogue scene (menus are covered by step 3). Start from a savestate near the scene (made by the debug tool, below), shoot every 30–120 frames, add `--sheet`, then read the **one** sheet PNG.
+5. **Broad tour:** only after layout/wrap/engine changes. Keep a baseline (page counts or band-diff hashes per scene) and compare against it. Without a baseline, a wrap change that broke 76 scenes was found only by a full re-tour (~1 h per tour).
+6. **Agent playtest:** a playtester subagent plays a stretch turn by turn and reports what a player trips over (§Agent playtest).
+7. **The user's playtest** comes last, and only for feel and pacing.
 
 ## Debug tool (phase 2, one per game)
 
@@ -24,10 +25,29 @@ python -X utf8 $SKILL/scripts/emu.py rom/game.sfc --out work/qa/warp --script to
 - **Find the values** with recon tools: `ramsearch.py` over `ramdump.lua` dumps for ids and flags (change rooms, note what changes), `watch.lua` to see who reads them, the disassembly for the event-flag array. Check GameFAQs/cheat databases first (never tcrf.net: see SKILL.md ground rules): many Japanese games keep a debug menu, level select or sound test, and existing cheat codes often are the RAM addresses you need. A debug menu re-enabled by a ROM patch goes in a debug build only, never the release.
 - **No Lua (PPSSPP):** the same scene list drives a Python script that imports `psp.py` and pokes RAM over its WebSocket (`memory.write`), or writes CWCheat codes to `memstick/PSP/Cheats/<GAME_ID>.ini` with cheats enabled.
 - **Save the results:** after each warp, `--state-out work/states/<scene>.<ext>`; regenerate the whole library from the scene list after engine, font or graphics changes (`tools/debug/` should have a one-command "regen all states"). Each regenerated state asserts a scene RAM flag before saving: a title menu whose default depends on existing saves sent one new-game route to "Continue → No data", and every state from it was silently wrong.
-- **Save fixtures from warps, not save editors:** warp to a save point, save in game, and keep the battery save or memory card the game wrote (`work/saves/<scene>.<ext>`) as a playtest start (`--sav`). The game's own code gets the format and checksums right, and the file holds no ROM pointers, so it survives rebuilds that break savestates. Hand-editing `.srm`/`.sav`/`.dsv`/`.mcd` means working out each game's layout and checksum (and the PS1 card frame) first; do it only when no warp can reach the state. Where the written file lands: Mesen always copies it into `--out`; DeSmuME/PCSX with `--sav` write there too (`<rom name>.srm`/`.sav`/`.dsv`, `memcard1.mcd`). PCSX without `--sav` uses its portable memory card beside the exe.
+- **Save fixtures:** warp to a save point, save in game, and keep the battery save or memory card the game wrote (`work/saves/<scene>.<ext>`) as a playtest start (`--sav`). The file holds no ROM pointers, so it survives rebuilds that break savestates. Where the written file lands: Mesen always copies it into `--out`; DeSmuME/PCSX with `--sav` write there too (`<rom name>.srm`/`.sav`/`.dsv`, `memcard1.mcd`). PCSX without `--sav` uses its portable memory card beside the exe.
+- **Save editor (`tools/debug/save.py`):** edits a game-written save to set stage/chapter, story flags, inventory, money, levels and names, then fixes the checksum. Use it to reach a stage a warp can't, and to build the stress saves QA needs (§Stress saves). Map the layout by diffing two game-written saves that differ by one known change (buy one item, gain gold, rename, clear a chapter), and find the checksum in the game's save routine (`watch.lua` on the SRAM/card write; PS1 cards also need the frame XOR). Start every edit from a game-written base file, never from zeros. Test: each edited save boots with `--sav`, the load screen shows the edited values, and loading reaches the field with no "data corrupted" message; assert that in the run, not by eye. Keep the field map in `tools/debug/save_layout.*` beside the scene list.
 - **Done when** every scene-list entry reaches its scene from a cold boot with a shot to prove it. List the command in the instructions file so a fresh session uses it instead of asking the user for saves.
 
 User saves, memory cards and savestates still help (ask once at project start), and `--state-every N` drops a state every N frames along a long route. Neither replaces the debug tool.
+
+## Stress saves (phase 8)
+
+A normal playthrough never fills every slot with the longest names, so overflow in menus, shops and status screens slips past routes. Generate the worst cases with the save editor (or `FAST`-style RAM writes when there is no editor yet), one save per case in `work/saves/stress_<case>.<ext>`, regenerated from the scene list by the same "regen all" command:
+- **Longest text:** every inventory/equipment/skill/spell slot holding the items with the longest English names (rank by rendered width from the build's width table, not char count); the longest key items and status effects.
+- **Full lists:** every item, every spell, every party member, full bestiary/journal, so scroll arrows, page counts and the last row are drawn.
+- **Max numbers:** max money, quantities (99/999), level, HP/MP, stats, play time, so every digit column shows; also 0 and 1 for singular/plural lines ("1 potions").
+- **Names:** max-length player and party names (widest glyphs, e.g. `WWWWWWWW`) and an empty or 1-letter name, then visit dialogue that inserts them.
+- **Stage:** one save per chapter or story flag set that changes menus, shop stock or party.
+For each, route through every menu, shop, status, equip and save/load screen (the load screen shows names, place and time from the save too), shoot, and send the sheets to the visual-QA gate like any other route. Add a case whenever a bug report names a menu state these miss.
+
+Keeping it fast:
+- **One save, many checks:** a save puts every case for its menus on screen at once, so one route per save replaces one route per menu.
+- **Worst case only:** rank strings by pixel width per menu and field. If the widest fits, the rest fit, so the longest-text save holds only those; the build's width lint covers the others for free.
+- **Machine check first:** run the stress routes with the VRAM line check (§Screen tour) and `textcover.lua`. Only screens that fail, plus one sheet per menu for layout, go to visual-QA agents.
+- **Re-run only what a fix touches:** `textcover.py work/qa/stress <strings.tsv kept with that run> --runs-for ID,ID` prints the cases that showed those strings; re-run just those. Run the full set again after font, VWF or menu-code changes.
+- **Parallel:** each case is its own cold boot with `--sav`, so run cases as parallel `emu.py` processes (a `--jobs N` in the project's runner).
+- **No state regen:** saves hold no ROM pointers, so they survive rebuilds. Boot stress cases with `--sav`, not savestates, and skip regenerating states between text-only builds.
 
 ## Screen tour (the debug tool plus a text check)
 
@@ -48,7 +68,7 @@ A tour only proves the screens it visits. Coverage lists the text it never reach
    - Mesen: `--script $SKILL/scripts/lua/probes/textcover.lua --var "RANGES='83AA38-83BE32,03AA38-03BE32'"`, listing every bank mirror the code may read through. Text must hold on screen long enough to read: raise the warp's hold time.
    - Other emulators: log `TEXT <hex address>` to `log.txt` from the project's own text hook.
    - Compressed text or a RAM buffer: log ids from the decompressor or the writer as `TEXT <hex id>`, and put those ids in `strings.tsv`.
-3. **Report:** `python -X utf8 $SKILL/scripts/textcover.py work/qa/cover build/strings.tsv --waive docs/text_unshown.tsv --mask 0x7FFFFF` (the mask folds SNES mirrors). Exit 1 while any string isn't shown or waived.
+3. **Report:** `python -X utf8 $SKILL/scripts/textcover.py work/qa/cover build/strings.tsv --waive docs/text_unshown.tsv --mask 0x7FFFFF` (the mask folds SNES mirrors). Exit 1 while any string isn't shown or waived. `--runs-for ID,ID` instead lists the run directories that showed those ids (re-run only those after a fix).
 4. **Close the gaps:** add a scene for each group of missing ids, and re-run. Waive only what you can show is unreachable, with the reason (`id<TAB>debug-only string`).
 
 A first-byte read proves the game reached a string, not that it drew correctly; the sheets still judge that. PPSSPP has no Lua, so a PSP project needs another log source or a waiver for the gate.

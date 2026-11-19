@@ -8,6 +8,8 @@ LOGDIR       searched for log.txt files holding "TEXT <hex address>" lines: lua/
              the same line logged from the project's own text hook on other emulators.
 --waive      "id<TAB>reason" lines: strings accepted as unreachable. A line with no reason doesn't count.
 --mask       AND applied to both sides, for bank mirrors ($03 and $83 on SNES: 0x7FFFFF).
+--runs-for   comma-separated ids: print instead each run directory whose log showed any of them, so a fix re-runs
+             only those cases. Use the STRINGS.tsv kept with that coverage run (addresses move on rebuilds).
 
 Prints each string never shown; exit 1 if any isn't waived. A string counts as shown when the game read its first
 byte, which proves it was reached, not that it drew correctly: that stays with visual QA.
@@ -46,6 +48,13 @@ def report(logdir, strings, waive=None, mask=0xFFFFFFFF):
     return 1 if bad else 0
 
 
+def runs_for(logdir, strings, ids, mask=0xFFFFFFFF):
+    """Run directories whose log.txt showed any of the given string ids."""
+    want = {int(r[1], 16) & mask for r in read_rows(strings) if r[0] in ids}
+    return sorted(os.path.dirname(log) for log in glob.glob(os.path.join(logdir, "**", "log.txt"), recursive=True)
+                  if want & {int(a, 16) & mask for a in TEXT.findall(open(log, encoding="utf-8", errors="replace").read())})
+
+
 def _selftest():
     import tempfile
     with tempfile.TemporaryDirectory() as d:
@@ -64,6 +73,7 @@ def _selftest():
         with open(wv, "w") as f:
             f.write("c\tdebug-only string\n")
         assert report(cover, tsv, wv, 0x7FFFFF) == 0
+        assert runs_for(cover, tsv, {"b"}, 0x7FFFFF) == [logs] and runs_for(cover, tsv, {"c"}, 0x7FFFFF) == []
     print("selftest ok")
 
 
@@ -73,7 +83,11 @@ def main():
     ap.add_argument("strings")
     ap.add_argument("--waive")
     ap.add_argument("--mask", type=lambda s: int(s, 0), default=0xFFFFFFFF)
+    ap.add_argument("--runs-for")
     a = ap.parse_args()
+    if a.runs_for:
+        print(*runs_for(a.logdir, a.strings, set(a.runs_for.split(",")), a.mask), sep="\n")
+        return 0
     return report(a.logdir, a.strings, a.waive, a.mask)
 
 
